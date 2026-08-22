@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+  # Forgejo has no rerun API, so without this a transient runner fault leaves main red with no way
+  # back except an unrelated commit. The consumers carry the same escape hatch for the same reason.
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint and test the standard's own code
+    # Trusted-ref gate: this Forgejo runner is self-hosted and `pull_request` fires for forks too,
+    # so without this a fork's PR would run its own code on the owner's hardware.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        id: setup_python
+        continue-on-error: true
+        with:
+          python-version: "3.14"
+      # Retried in-step, guarded on `!= 'success'` rather than `== 'failure'`: an unset outcome must
+      # retry, or `continue-on-error` would swallow the first failure and later steps would run
+      # against whatever interpreter happened to be present.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.setup_python.outcome != 'success'
+        with:
+          python-version: "3.14"
+      - name: Install the toolchain
+        # One annotation per pin, each directly above its OWN value. Stacked above a single install
+        # line they pair up wrongly: the pattern takes the last annotation and the first version
+        # after it, so Renovate bumps one dependency's pin under the other's name.
+        env:
+          # renovate: datasource=pypi depName=ruff
+          RUFF: "0.16.4"
+          # renovate: datasource=pypi depName=pytest
+          PYTEST: "9.1.1"
+        run: python3 -m pip install --upgrade "ruff==$RUFF" "pytest==$PYTEST"
+      - name: Ruff
+        # The rules here are the UNION of both consumers', because a vendored file has to pass in
+        # whichever repo it lands in. Linting the standard with anything weaker just moves the
+        # failure downstream, into a repo whose author did not write the file.
+        run: ruff check $(git ls-files '*.py' | tr '\n' ' ')
+      - name: Test
+        run: pytest -q tests/
+
+  hygiene:
+    name: Shell scripts
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Shellcheck
+        # The same script the consumers run, on itself — but handed this repo's root explicitly. A
+        # consumer vendors it to packaging/, where its default lands on the repo root; here it lives
+        # one level deeper, so the default would scan only shared/ and report a clean pass with this
+        # repo's own tests never checked.
+        run: bash shared/packaging/shellcheck-all.sh "$GITHUB_WORKSPACE"
+      - name: Release-helper unit tests
+        run: bash tests/test-release-common.sh
+
+  vendor:
+    name: The standard can actually be vendored
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        id: setup_python
+        continue-on-error: true
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.setup_python.outcome != 'success'
+        with:
+          python-version: "3.14"
+      - name: Vendor into a scratch consumer and verify the drift check agrees
+        # The contract both consumers depend on, exercised rather than assumed: vendor.py must
+        # produce a tree that check.py — the same script CI runs in each consumer — reports as in
+        # sync. A lock format that the writer and the reader disagree about would otherwise surface
+        # as a red build in whiskerless or dreame-valetudo, for a change made here.
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d)"
+          mkdir -p "$scratch/packaging"
+          echo 'PROJECT_REPO_SLUG="SisyphusMD/scratch"' > "$scratch/packaging/project.env"
+          python3 tools/vendor.py "$scratch"
+          ( cd "$scratch" && python3 "$GITHUB_WORKSPACE/tools/check.py" )

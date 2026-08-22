@@ -97,7 +97,12 @@ def _embedded_elfs(bundle: Path, destination: Path) -> list[tuple[str, Path]]:
     # are indistinguishable here — and quietly treating the first as the second would let a onefile
     # payload through this gate entirely unscanned.
     try:
-        from PyInstaller.archive.readers import ArchiveReadError, CArchiveReader
+        # Deferred deliberately: PyInstaller is not a dependency of this check, and importing it
+        # at module level would break the script everywhere it is not installed.
+        from PyInstaller.archive.readers import (  # noqa: PLC0415
+            ArchiveReadError,
+            CArchiveReader,
+        )
     except ImportError as exc:  # pragma: no cover - environment error, not a code path
         raise SystemExit(
             f"cannot scan {bundle.name}: PyInstaller is not importable, so a onefile bundle's "

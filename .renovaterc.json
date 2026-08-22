@@ -1,0 +1,44 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "gitAuthor": "Renovate Bot <renovate@bryantserver.local>",
+  "prConcurrentLimit": 0,
+  "prHourlyLimit": 0,
+  "separateMinorPatch": true,
+  "fetchChangeLogs": "pr",
+  "enabledManagers": ["github-actions", "custom.regex"],
+  "github-actions": {
+    "managerFilePatterns": [
+      "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Automerge patch, minor and digest updates once CI is green. This repository ships no artifact of its own: everything here reaches users only after it is vendored into a consumer and passes that consumer's release path, so a green run is a stronger signal here than it is there.",
+      "matchUpdateTypes": ["patch", "minor", "digest"],
+      "automerge": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Pinned container images inside the shared scripts. These live here and nowhere else: a consumer that bumped its VENDORED copy would edit a locked file and fail its own drift check, so the bump has to originate in this repository and reach consumers as a re-vendor.",
+      "managerFilePatterns": [
+        "/^shared/packaging/.+\\.sh$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>\\S+)(?: packageName=(?<packageName>\\S+))?\\s+[^\\n]*?:(?<currentValue>[\\w][\\w.-]*)@(?<currentDigest>sha256:[0-9a-f]+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Version pins annotated with a `# renovate:` comment in the workflows. The tail is deliberately loose so a `pip install pkg==` line matches as readily as an UPPERCASE=\"value\" assignment — the ANNOTATION is the anchor. Kept the same shape as both consumers', so a pattern learned in one repo reads the same in all three.",
+      "managerFilePatterns": [
+        "/(\\.github|\\.forgejo)/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>pypi|github-tags|gitea-tags) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+[^\\n]*?[:=]=?\\s*\"?(?<currentValue>\\d[\\w.-]*)"
+      ]
+    }
+  ]
+}

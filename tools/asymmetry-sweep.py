@@ -67,7 +67,7 @@ def _shape(repo: Path) -> dict[str, set[str]]:
             shape["test files"].add(n)
         elif f.startswith("docs/"):
             shape["documentation"].add(n)
-        elif f.endswith(".py") and (f.startswith("src/") or f.startswith("custom_components/")):
+        elif f.endswith(".py") and f.startswith(("src/", "custom_components/")):
             shape["source modules"].add(n)
         elif "/" not in f:
             shape["top-level files"].add(n)

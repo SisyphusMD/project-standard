@@ -1,0 +1,258 @@
+diff --git a/packaging/stamp-version.py b/packaging/stamp-version.py
+old mode 100644
+new mode 100755
+index 3836895..b32a034
+--- a/packaging/stamp-version.py
++++ b/packaging/stamp-version.py
+@@ -1,15 +1,21 @@
+ #!/usr/bin/env python3
+-"""Stamp the three release version records without resolving or executing dependencies."""
++"""Stamp this project's version records, without resolving or executing dependencies.
++
++The mechanism (PEP 440 normalisation, the exactly-one-match guard, the staged atomic write, and
++`--check` reporting) is shared in stamp_common.py. Only the inventory below is project-specific.
++"""
+ 
+ from __future__ import annotations
+ 
+-import argparse
+-import os
+ import re
+-import tempfile
++import sys
+ from pathlib import Path
+ 
+-_VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:(?:-rc\.[0-9]+)|(?:\.dev[0-9]+))?$")
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++
++import stamp_common
++from stamp_common import normalized, readable, replace_once
++
+ _FILES = (
+     Path("pyproject.toml"),
+     Path("dreame_valetudo/__init__.py"),
+@@ -17,96 +23,40 @@ _FILES = (
+ )
+ 
+ 
+-def normalized(version: str) -> str:
+-    if _VERSION.fullmatch(version) is None:
+-        raise ValueError(f"invalid project version: {version!r}")
+-    match = re.fullmatch(r"([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)", version)
+-    return f"{match[1]}rc{match[2]}" if match else version
+-
+-
+-def _replace_once(text: str, pattern: re.Pattern[str], replacement: str, label: str) -> str:
+-    updated, count = pattern.subn(replacement, text)
+-    if count != 1:
+-        raise ValueError(f"{label} must contain exactly one version record; found {count}")
+-    return updated
+-
+-
+-def rendered(root: Path, version: str) -> dict[Path, str]:
++def rendered(root: Path, version: str, *, check: bool = False) -> dict[Path, str]:
++    _ = check  # every Dreame record is stamped and checked identically
+     lock_version = normalized(version)
+-    paths = [root / relative for relative in _FILES]
+-    for path in paths:
+-        if not path.is_file() or path.is_symlink():
+-            raise ValueError(f"version record is missing, non-regular, or symlinked: {path}")
+-
+-    project = paths[0].read_text()
+-    package = paths[1].read_text()
+-    lock = paths[2].read_text()
++    project, package, lock = readable(root, _FILES)
+     return {
+-        paths[0]: _replace_once(
+-            project,
++        project: replace_once(
++            project.read_text(),
+             re.compile(r'^version = "[^"]*"$', re.MULTILINE),
+             f'version = "{version}"',
+             "pyproject.toml",
+         ),
+-        paths[1]: _replace_once(
+-            package,
++        package: replace_once(
++            package.read_text(),
+             re.compile(r'^__version__ = "[^"]*"$', re.MULTILINE),
+             f'__version__ = "{version}"',
+             "dreame_valetudo/__init__.py",
+         ),
+-        paths[2]: _replace_once(
+-            lock,
+-            re.compile(
+-                r'(\[\[package\]\]\nname = "dreame-valetudo"\nversion = ")[^"]+("\n)'
+-            ),
++        lock: replace_once(
++            lock.read_text(),
++            re.compile(r'(\[\[package\]\]\nname = "dreame-valetudo"\nversion = ")[^"]+("\n)'),
+             rf"\g<1>{lock_version}\g<2>",
+             "uv.lock",
+         ),
+     }
+ 
+ 
++# Thin wrappers so this script's own shape is unchanged by where the mechanism lives: callers and
++# tests address stamp-version.py, not the module it happens to delegate to.
+ def stamp(root: Path, version: str, *, check: bool = False) -> bool:
+-    updates = rendered(root, version)
+-    changed = {path: contents for path, contents in updates.items() if path.read_text() != contents}
+-    if check:
+-        return not changed
+-    if not changed:
+-        return True
+-
+-    temporary: dict[Path, Path] = {}
+-    try:
+-        for path, contents in changed.items():
+-            descriptor, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+-            target = Path(raw)
+-            temporary[path] = target
+-            with os.fdopen(descriptor, "w") as stream:
+-                stream.write(contents)
+-                stream.flush()
+-                os.fsync(stream.fileno())
+-            target.chmod(path.stat().st_mode)
+-        for path, target in temporary.items():
+-            target.replace(path)
+-    finally:
+-        for target in temporary.values():
+-            target.unlink(missing_ok=True)
+-    return True
++    return not stamp_common.stamp(root, rendered, version, check=check)
+ 
+ 
+ def main() -> int:
+-    parser = argparse.ArgumentParser()
+-    parser.add_argument("version")
+-    parser.add_argument("root", nargs="?", type=Path, default=Path.cwd())
+-    parser.add_argument("--check", action="store_true")
+-    args = parser.parse_args()
+-    try:
+-        matched = stamp(args.root.resolve(), args.version, check=args.check)
+-    except (OSError, ValueError) as exc:
+-        parser.error(str(exc))
+-    if args.check and not matched:
+-        print(f"version records do not all match {args.version}")
+-        return 1
+-    print(f"version records match {args.version}" if args.check else f"stamped {args.version}")
+-    return 0
++    return stamp_common.run(rendered)
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/pyproject.toml b/pyproject.toml
+index d8a79fb..f64c0f5 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -41,6 +41,10 @@ select = [
+ ]
+ 
+ [tool.ruff.lint.per-file-ignores]
++# Vendored from project-standard. Shared files carry no project-specific noqa codes (a code the
++# sibling does not enable would fail RUF100 there), so the exemption lives with the rule set that
++# needs it. The lazy PyInstaller import is deliberate: it is a release-build dependency only.
++"packaging/check-glibc-floor.py" = ["PLC0415"]
+ # False positive: ruff can't see that console.die is NoReturn across the module boundary.
+ "dreame_valetudo/fastboot.py" = ["RET503"]
+ "dreame_valetudo/phases/manage.py" = ["RET503"]
+diff --git a/tests/python/test_changelog_scripts.py b/tests/python/test_changelog_scripts.py
+index e8172c0..fbaedd6 100644
+--- a/tests/python/test_changelog_scripts.py
++++ b/tests/python/test_changelog_scripts.py
+@@ -134,7 +134,7 @@ def test_changelog_section_extracts_a_tags_section(tmp_path: Path) -> None:
+     result = _section(root, "0.1.0")
+ 
+     assert result.returncode == 0, result.stderr
+-    assert result.stdout == "\n### Added\n\n- initial\n"
++    assert result.stdout == "### Added\n\n- initial\n"
+ 
+ 
+ def test_changelog_section_falls_back_to_unreleased_for_a_prerelease_tag(tmp_path: Path) -> None:
+@@ -143,4 +143,4 @@ def test_changelog_section_falls_back_to_unreleased_for_a_prerelease_tag(tmp_pat
+     result = _section(root, "0.2.0-rc.1")
+ 
+     assert result.returncode == 0, result.stderr
+-    assert result.stdout == "\n### Added\n\n- something new\n\n"
++    assert result.stdout == "### Added\n\n- something new\n\n"
+diff --git a/tests/python/test_glibc_floor.py b/tests/python/test_glibc_floor.py
+index 01b89f4..22b705f 100644
+--- a/tests/python/test_glibc_floor.py
++++ b/tests/python/test_glibc_floor.py
+@@ -25,7 +25,11 @@ def test_glibc_audit_accepts_a_requirement_at_the_declared_floor(
+     artifact = tmp_path / "tool"
+     artifact.write_bytes(b"\x7fELF")
+     monkeypatch.setattr(module, "_embedded_elfs", lambda _bundle, _destination: [])
+-    monkeypatch.setattr(module, "_requirements", lambda _path: ["2.17", "2.28", "2.27"])
++    monkeypatch.setattr(
++        module,
++        "_requirements",
++        lambda _path: [("GLIBC", "2.17"), ("GLIBC", "2.28"), ("GLIBC", "2.27")],
++    )
+     monkeypatch.setattr(sys, "argv", [str(_SCRIPT), "2.28", str(artifact)])
+ 
+     assert module.main() == 0
+@@ -39,13 +43,13 @@ def test_glibc_audit_accepts_an_architecture_with_an_older_requirement(
+     artifact = tmp_path / "tool"
+     artifact.write_bytes(b"\x7fELF")
+     monkeypatch.setattr(module, "_embedded_elfs", lambda _bundle, _destination: [])
+-    monkeypatch.setattr(module, "_requirements", lambda _path: ["2.17"])
++    monkeypatch.setattr(module, "_requirements", lambda _path: [("GLIBC", "2.17")])
+     monkeypatch.setattr(sys, "argv", [str(_SCRIPT), "2.28", str(artifact)])
+ 
+     assert module.main() == 0
+     output = capsys.readouterr().out
+     assert "maximum requirement is GLIBC_2.17" in output
+-    assert "within the declared GLIBC_2.28 floor" in output
++    assert "within GLIBC_2.28 for the GLIBC_2.28 floor" in output
+ 
+ 
+ def test_glibc_audit_rejects_a_newer_embedded_requirement(
+@@ -55,11 +59,14 @@ def test_glibc_audit_rejects_a_newer_embedded_requirement(
+     artifact = tmp_path / "tool"
+     artifact.write_bytes(b"\x7fELF")
+     monkeypatch.setattr(module, "_embedded_elfs", lambda _bundle, _destination: [])
+-    monkeypatch.setattr(module, "_requirements", lambda _path: ["2.28", "2.35"])
++    monkeypatch.setattr(module, "_requirements", lambda _path: [("GLIBC", "2.28"), ("GLIBC", "2.35")])
+     monkeypatch.setattr(sys, "argv", [str(_SCRIPT), "2.28", str(artifact)])
+ 
+     assert module.main() == 1
+-    assert "declared GLIBC_2.28 floor, but release artifacts require GLIBC_2.35" in capsys.readouterr().out
++    assert (
++        "declared GLIBC_2.28 floor allows GLIBC_2.28, but release artifacts require GLIBC_2.35"
++        in capsys.readouterr().out
++    )
+ 
+ 
+ def test_glibc_audit_checks_the_archive_inside_an_elf_executable(
+@@ -78,7 +85,7 @@ def test_glibc_audit_checks_the_archive_inside_an_elf_executable(
+     monkeypatch.setattr(
+         module,
+         "_requirements",
+-        lambda path: ["2.35"] if path == embedded else ["2.14"],
++        lambda path: [("GLIBC", "2.35")] if path == embedded else [("GLIBC", "2.14")],
+     )
+     monkeypatch.setattr(sys, "argv", [str(_SCRIPT), "2.28", str(artifact)])
+ 
+@@ -102,7 +109,7 @@ def test_glibc_audit_keeps_extractions_from_multiple_bundles_separate(
+         return [(f"{bundle.name}:libpython.so", destination / "0")]
+ 
+     monkeypatch.setattr(module, "_embedded_elfs", embedded)
+-    monkeypatch.setattr(module, "_requirements", lambda _path: ["2.28"])
++    monkeypatch.setattr(module, "_requirements", lambda _path: [("GLIBC", "2.28")])
+     monkeypatch.setattr(
+         sys,
+         "argv",
+@@ -126,9 +133,9 @@ def test_glibc_audit_walks_a_onedir_bundle_directory(
+     (bundle / "_internal" / "libpython-link.so").symlink_to("libpython.so")
+     audited: list[str] = []
+ 
+-    def _requirements(path: Path) -> list[str]:
++    def _requirements(path: Path) -> list[tuple[str, str]]:
+         audited.append(path.name)
+-        return ["2.35"] if path.name == "libpython.so" else ["2.17"]
++        return [("GLIBC", "2.35")] if path.name == "libpython.so" else [("GLIBC", "2.17")]
+ 
+     monkeypatch.setattr(module, "_requirements", _requirements)
+     monkeypatch.setattr(sys, "argv", [str(_SCRIPT), "2.28", str(bundle)])

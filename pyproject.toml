@@ -1,0 +1,14 @@
+# The standard's own lint settings. Deliberately the UNION of both consumers' rule sets, because a
+# vendored file has to pass in whichever repo it lands in — linting here with anything weaker just
+# moves the failure downstream.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E4", "E7", "E9", "F",
+    "I",
+    "B", "C4", "FLY", "ISC", "PERF", "PIE", "PTH", "RET", "RUF", "SIM", "UP",
+    "PLC", "PLE", "PLW",
+]

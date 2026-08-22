@@ -12,3 +12,9 @@ select = [
     "B", "C4", "FLY", "ISC", "PERF", "PIE", "PTH", "RET", "RUF", "SIM", "UP",
     "PLC", "PLE", "PLW",
 ]
+
+# Matches dreame-valetudo's exemption for the same file. The import is deferred on purpose, and the
+# suppression lives here rather than in the file because a `# noqa` travels with a VENDORED script
+# into a consumer that does not enable the rule — where it is flagged as unused.
+[tool.ruff.lint.per-file-ignores]
+"shared/packaging/check-glibc-floor.py" = ["PLC0415"]

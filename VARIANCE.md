@@ -300,7 +300,7 @@ their robots over different transports. `bleak` is faked at its boundary and no 
 Bluetooth radio; `pyusb` is stubbed into `sys.modules` and no runner has a robot on the end of a
 cable. Neither project can buy that coverage, so both hold, and both must say so in `prBodyNotes`
 where the reviewer sees it — `test_every_renovate_hold_says_what_CI_cannot_reach` in whiskerless,
-`test_every_renovate_hold_says_what_ci_cannot_reach` in dreame-valetudo.
+`test_every_hold_says_what_CI_cannot_reach` in dreame-valetudo.
 
 The manylinux images are held in both for a different reason that is the same shape: they define the
 shipped glibc ABI, nothing in PR CI builds with them, and the blast radius is every Linux package.

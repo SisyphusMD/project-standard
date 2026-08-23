@@ -21,8 +21,8 @@
 # Optional knobs: STUBBORN (every delete is a 204 that lied), FLAKY_TAG (a tag-ref delete that only
 # takes on a retry), STICKY_RELEASE (a release delete that persistently 500s), UNREADABLE (a registry
 # whose reads fail), UNREADABLE_INDEX (only the apt/dnf index fails, so enumeration succeeds and the
-# replacement check cannot be answered), UNREADABLE_INDEX_AFTER_FIRST (the candidate's index read
-# succeeds and the stable's does not).
+# replacement check cannot be answered), UNREADABLE_STABLE_INDEX (only the stable's index read
+# fails, the candidate's succeeds).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -147,13 +147,16 @@ fi
 case "$url" in
   *api/packages/*/debian/dists/*|*api/packages/*/rpm/*/repodata/*)
     [ -n "${UNREADABLE_INDEX:-}" ] && emit 503 '{"message":"index unavailable"}'
-    # Both index lookups for a pair go to the SAME url — it carries the distribution and architecture
-    # but not the version — so failing by url cannot separate them. Failing by ordinal can: the
-    # candidate's read succeeds and the stable's does not, which is the case where treating "could not
-    # ask" as "not published" would quietly file an unreadable index as a confident keep.
-    if [ -n "${UNREADABLE_INDEX_AFTER_FIRST:-}" ]; then
-      hits=$(cat "$STATE/index-hits" 2>/dev/null || echo 0)
-      hits=$((hits + 1)); printf '%s' "$hits" > "$STATE/index-hits"
+    # Both lookups for a pair go to the SAME url — it carries the distribution and architecture but
+    # not the version — so failing by url alone cannot separate them. Counting reads PER url can: the
+    # first read of an index is always the candidate's and any later one is the stable's, because the
+    # stable is only asked about once the candidate answered. A global ordinal would not work, since
+    # a candidate that is simply absent from a distribution ends that pair with no stable read at all
+    # and slides every later count by one.
+    if [ -n "${UNREADABLE_STABLE_INDEX:-}" ]; then
+      key=$(printf '%s' "$url" | tr -c 'a-zA-Z0-9' '_')
+      hits=$(cat "$STATE/idx-$key" 2>/dev/null || echo 0)
+      hits=$((hits + 1)); printf '%s' "$hits" > "$STATE/idx-$key"
       [ "$hits" -gt 1 ] && emit 503 '{"message":"index unavailable"}'
     fi ;;
 esac
@@ -524,7 +527,7 @@ pkgset "debian 1.0.0~rc.1 amd64 testing" "rpm 1.0.0~rc.1-1 x86_64 testing" \
 reset
 pkgset "debian 1.0.0~rc.1 amd64 testing" "rpm 1.0.0~rc.1-1 x86_64 testing" \
        "debian 1.0.0 amd64 testing"      "rpm 1.0.0-1 x86_64 testing"
-out="$(run DRY_RUN=false UNREADABLE_INDEX_AFTER_FIRST=1)"
+out="$(run DRY_RUN=false UNREADABLE_STABLE_INDEX=1)"
 [ "$(deletes)" = 0 ] || fail "pruned while the stable's index read failed: $out"
 case "$out" in
   *"could not read a package index"*) ;;
@@ -533,7 +536,7 @@ esac
 reset
 pkgset "debian 1.0.0~rc.1 amd64 testing" "rpm 1.0.0~rc.1-1 x86_64 testing" \
        "debian 1.0.0 amd64 testing"      "rpm 1.0.0-1 x86_64 testing"
-[ "$(status DRY_RUN=false UNREADABLE_INDEX_AFTER_FIRST=1 STRICT=true)" = 1 ] \
+[ "$(status DRY_RUN=false UNREADABLE_STABLE_INDEX=1 STRICT=true)" = 1 ] \
   || fail "STRICT passed while the stable's index could not be read"
 survivor
 
@@ -552,7 +555,7 @@ done
 # delete, and STUBBORN makes that delete lie.
 pkgset "debian 1.0.0~rc.1 amd64 testing" "rpm 1.0.0~rc.1-1 x86_64 testing" \
        "debian 1.0.0 amd64 testing"      "rpm 1.0.0-1 x86_64 testing"
-out="$(run DRY_RUN=false STUBBORN=1 UNREADABLE_INDEX_AFTER_FIRST=1)"
+out="$(run DRY_RUN=false STUBBORN=1 UNREADABLE_STABLE_INDEX=1)"
 case "$out" in
   *"still carry residue"*) ;;
   *) fail "the composed report dropped the residue half: $out" ;;

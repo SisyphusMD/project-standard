@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Print Renovate dependency-bump commit subjects since <prev-tag>, newest first, deduped to the
 # latest bump per dependency (git log is newest-first, so the first key seen is the latest; the
-# dedup key is the subject minus its trailing " to <version>", Renovate's format is
-# "<type>(deps): update <dep> to <version>").
+# dedup key is the DEPENDENCY NAME alone, cut from between "update " and " to " and then stripped of
+# Renovate's "dependency " prefix and its type qualifier. Trimming only a trailing " to <version>"
+# leaves the version in the key whenever a subject carries a trailing note, and keeping the qualifier
+# makes "<dep> action" a different dependency from "<dep>" when one bump was written by hand).
 # `: update ` is required, not just the `(deps)` scope: hand-written policy commits use that scope too
 # ("fix(deps): hold setup-python bumps until ..."), and they carry no " to <version>" for the dedup to
 # strip, so each one reaches the release notes whole as a bullet that describes no dependency change.
@@ -20,4 +22,8 @@ prev="${1:-}"
 subjects="$(git log "${prev}..HEAD" --pretty=format:'%s')"
 printf '%s\n' "$subjects" \
   | grep -E '^(chore|fix)\(deps\): update ' \
-  | awk '{ key=$0; sub(/ to [^ ]+$/, "", key); if (!seen[key]++) print }' || true
+  | awk '{ key=$0
+           sub(/^.*: update /, "", key); sub(/ to .*$/, "", key)
+           sub(/^dependency /, "", key)
+           sub(/ (docker digest|docker tag|docker image|action|digest|tag|image)$/, "", key)
+           if (!seen[key]++) print }' || true

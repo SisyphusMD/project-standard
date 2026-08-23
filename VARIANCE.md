@@ -511,6 +511,19 @@ runs, never which **workflow** does. Branches predating the pin stay dispatchabl
 deleted, which is why the operational half of this guarantee is not letting stale release branches
 linger in the forge.
 
+## The formula's checksum marker — two spellings, on purpose
+
+`render-formula.sh` substitutes `REPLACE_SDIST_SHA256` **and** `REPLACE_TARBALL_SHA256` with the same
+value, and each project's templates use only one of them. That is not drift left in shared code: the
+two describe the archive each project actually publishes, a PyPI sdist for whiskerless and a
+byte-reproducible source tarball for dreame-valetudo, and both names are accurate for their own
+formula. One renderer serves both, and its leftover-marker guard still fails a template that used
+neither.
+
+The consequence for anything reading a template is that **the marker has to be read out of the file,
+never assumed**. A test that hardcodes one spelling silently becomes a no-op for the other project,
+which is how a shared assertion can pass against a template it never touched.
+
 ## Secret input — converged on the guarantee, different in form
 
 A command line is world-readable through `ps` for as long as the command runs, so neither project

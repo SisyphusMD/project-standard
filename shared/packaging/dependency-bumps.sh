@@ -3,6 +3,9 @@
 # latest bump per dependency (git log is newest-first, so the first key seen is the latest; the
 # dedup key is the subject minus its trailing " to <version>", Renovate's format is
 # "<type>(deps): update <dep> to <version>").
+# `: update ` is required, not just the `(deps)` scope: hand-written policy commits use that scope too
+# ("fix(deps): hold setup-python bumps until ..."), and they carry no " to <version>" for the dedup to
+# strip, so each one reaches the release notes whole as a bullet that describes no dependency change.
 #   dependency-bumps.sh [prev-tag]
 # A first release (no previous tag) has nothing to compare against: the deps it ships ARE the
 # initial set, not updates from a prior release, so it prints nothing even if Renovate bumps landed
@@ -16,5 +19,5 @@ prev="${1:-}"
 # empty Dependencies section rather than stop. The `|| true` exists only for grep finding no bumps.
 subjects="$(git log "${prev}..HEAD" --pretty=format:'%s')"
 printf '%s\n' "$subjects" \
-  | grep -E '^(chore|fix)\(deps\):' \
+  | grep -E '^(chore|fix)\(deps\): update ' \
   | awk '{ key=$0; sub(/ to [^ ]+$/, "", key); if (!seen[key]++) print }' || true

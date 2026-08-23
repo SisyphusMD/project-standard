@@ -508,3 +508,33 @@ def test_a_symlink_where_a_file_belongs_is_replaced_not_followed(tmp_path: Path)
     link = consumer / "packaging" / "linked.sh"
     assert link.is_file() and not link.is_symlink(), "the symlink survived where a file belongs"
     assert (target / "witness.txt").read_text() == "untouched\n", "wrote through the symlink"
+
+
+def test_every_shared_file_lands_where_consumers_are_configured_to_keep_it() -> None:
+    """Renovate discards post-upgrade changes outside its `fileFilters`.
+
+    Consumers enumerate those filters, so `shared/` is not free to grow anywhere it likes: a file
+    shipped outside the agreed shape is written on the update branch, dropped before the commit,
+    and leaves a lock describing content the branch does not have. The bump fails for a reason
+    visible in neither repository. Consumers assert their filters cover everything already in the
+    lock; only this end can refuse the first file that escapes them.
+
+    Widening this list means widening every consumer's `fileFilters` in the same change.
+    """
+    # Mirrors what both consumers actually list. `.github/` is not a prefix there: they retain one
+    # exact path inside it, so a second file added beside the template would be dropped.
+    allowed_prefixes = ("packaging/", "tests/release/")
+    allowed_files = {".editorconfig", ".github/PULL_REQUEST_TEMPLATE.md"}
+
+    shared = ROOT / "shared"
+    stray = sorted(
+        str(p.relative_to(shared))
+        for p in shared.rglob("*")
+        if p.is_file()
+        and "__pycache__" not in p.parts
+        and str(p.relative_to(shared)) not in allowed_files
+        and not str(p.relative_to(shared)).startswith(allowed_prefixes)
+    )
+    assert not stray, (
+        f"these would be vendored and then discarded by every consumer's fileFilters: {stray}"
+    )

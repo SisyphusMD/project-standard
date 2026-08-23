@@ -96,9 +96,11 @@ esac
 # and are reached only after earlier stems are gone. Reporting "nothing pruned" there would describe
 # an interrupted sweep as a no-op and hide the boundary a retry has to start from.
 stop() {  # stop <what-went-wrong>
-  local so_far="${pruned:-0}" progress="nothing pruned this run"
-  if [ "$so_far" -gt 0 ]; then
-    progress="$so_far rc tag(s) were pruned before this point; the rest are kept for a later sweep"
+  # Residue counts as progress even though it is not a completed prune: reaching it means DELETEs were
+  # already issued, so an operator told "nothing pruned" would look in the wrong place.
+  local done_ok="${pruned:-0}" partial="${fail:-0}" progress="nothing pruned this run"
+  if [ "$done_ok" -gt 0 ] || [ "$partial" -gt 0 ]; then
+    progress="$done_ok rc tag(s) fully pruned and $partial left carrying residue before this point"
   fi
   if [ "$strict" = true ]; then
     echo "::error::prune: $1; $progress" >&2
@@ -600,6 +602,10 @@ fi
 
 fail=0
 pruned=0
+# Kept for a reason that is not "the stable has not shipped": an index that could not be read answers
+# nothing, so the candidate stays. Counted apart from `fail` because nothing was deleted, and apart
+# from an ordinary keep because a sweep that could not see is not a sweep that found nothing.
+undetermined=0
 while IFS= read -r stem; do
   [ -n "$stem" ] || continue
   stable_present_everywhere "$stem" || case $? in
@@ -648,10 +654,19 @@ while IFS= read -r stem; do
           if index_has "$ptype" "$pdist" "$parch" "$pversion"; then here_code=0; else here_code=$?; fi
           [ "$here_code" -eq 1 ] && continue          # candidate not served here
           if [ "$here_code" -eq 2 ]; then
-            missing_stable="$missing_stable $ptype/$pdist(unreadable)"; continue
+            missing_stable="$missing_stable $ptype/$pdist(unreadable)"
+            undetermined=$((undetermined + 1)); continue
           fi
-          index_has "$ptype" "$pdist" "$parch" "$sversion" \
-            || missing_stable="$missing_stable $ptype/$pdist"
+          # Both lookups are classified the same way. Collapsing "the stable is not here" and "I could
+          # not ask" into one `||` reads the second as evidence of the first, which is how an
+          # unreadable index becomes a confident "kept: no replacement" that nobody investigates.
+          if index_has "$ptype" "$pdist" "$parch" "$sversion"; then there_code=0; else there_code=$?; fi
+          if [ "$there_code" -eq 2 ]; then
+            missing_stable="$missing_stable $ptype/$pdist(unreadable)"
+            undetermined=$((undetermined + 1))
+          elif [ "$there_code" -ne 0 ]; then
+            missing_stable="$missing_stable $ptype/$pdist"
+          fi
         done
       done
     done
@@ -695,14 +710,41 @@ while IFS= read -r stem; do
   done < <(printf '%s\n' "${group_tags[@]}" | sort)
 done < <(printf '%s\n' "${!stem_seen[@]}" | sort)
 
-if [ "$dry_run" = true ]; then
-  echo "prune (dry-run): reported the selection above; no deletions issued"
-elif [ "$fail" -eq 0 ]; then
-  echo "prune: $pruned superseded rc tag(s) removed and verified gone across all three registries"
-elif [ "$strict" = true ]; then
-  echo "::error::prune finished with $fail rc tag(s) still carrying residue on at least one registry; a later sweep re-enumerates and retries them" >&2
-  exit 1
-else
-  echo "::warning::prune finished with $fail rc tag(s) still carrying residue on at least one registry; a later sweep re-enumerates and retries them" >&2
+# Two ways a completed sweep still owes the operator a non-zero answer under STRICT: tags it deleted
+# but could not verify gone, and candidates it kept because an index would not answer. Neither is a
+# reason to redden a release, so both stay warnings by default.
+#
+# A dry run reaches this too. Its whole purpose is to report the selection the real run would make,
+# and a preview that could not read an index did not establish that selection — so the preview the
+# manual dispatch runs BY DEFAULT must not come back green as though it had.
+# Composed, not chosen between: the two counters describe different candidates, so reporting only the
+# first would tell an operator about one tag's residue while silently dropping another tag whose
+# safety was never established.
+report=""
+if [ "$fail" -gt 0 ]; then
+  report="$fail rc tag(s) still carry residue on at least one registry; a later sweep re-enumerates and retries them"
 fi
+if [ "$undetermined" -gt 0 ]; then
+  if [ -n "$report" ]; then report="$report; also "; fi
+  report="${report}could not read a package index on $undetermined check(s), so the candidates those cover were kept with their safety unestablished"
+fi
+
+if [ -z "$report" ]; then
+  if [ "$dry_run" = true ]; then
+    echo "prune (dry-run): reported the selection above; no deletions issued"
+  else
+    echo "prune: $pruned superseded rc tag(s) removed and verified gone across all three registries"
+  fi
+  exit 0
+fi
+report="prune: $report"
+
+if [ "$dry_run" = true ]; then
+  report="$report (dry-run: no deletions were issued)"
+fi
+if [ "$strict" = true ]; then
+  echo "::error::$report" >&2
+  exit 1
+fi
+echo "::warning::$report" >&2
 exit 0

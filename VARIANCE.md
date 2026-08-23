@@ -486,12 +486,16 @@ mirror of `DRY_RUN`'s fail-closed parse. `DRY_RUN` guards deletion, so ambiguity
 `STRICT` guards only reporting, so ambiguity must mean "stay quiet" rather than start reddening
 published releases. A forge input passed through unevaluated is a case in the suite for both.
 
-Before this existed the halves disagreed by accident rather than by decision: an unreadable release
-listing warned and returned 0 while an equally transient unreadable **package** registry errored and
-returned 1, and a failed package DELETE logged `::error::` yet still reached the unconditional
-`exit 0`. Every one of those now routes through a single `stop`, and residue follows the same rule.
-Even under `STRICT`, green still does not certify that anything was deleted — only that the sweep ran
-to completion — so the warnings remain the real report.
+Three outcomes owe the operator a non-zero answer, and a counter of failures alone names only the
+first two: tags **deleted but not verified gone** (residue), a sweep that **stopped early** on a
+partial picture, and candidates **kept because a package index would not answer**. That last one is
+the quiet one — nothing was deleted and no release was wrong, so it looks like a clean run, but the
+sweep could not establish that a stable replaces the candidate in apt/dnf. It is counted separately
+from residue precisely because nothing was deleted, and separately from an ordinary keep because a
+sweep that could not see is not a sweep that found nothing to do.
+
+Even under `STRICT`, green certifies only that the sweep ran to completion with all three counters at
+zero — never that any particular rc was removed, so the log remains the real report.
 
 **And one limit no test in the tree can reach.** `workflow_dispatch` runs the workflow definition
 belonging to the ref it was dispatched from; the pinned checkout replaces the working tree only

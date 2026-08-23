@@ -440,6 +440,58 @@ integration suite; whiskerless's had no test at all. The suite now lives in
 `tests/release/prune-rcs.sh` against a mutable fake registry, so a DELETE changes what the next GET
 returns and the verification is exercised rather than mocked. Both projects run it.
 
+**Coverage was one-sided at the call sites too.** Every prune test in both projects read
+`publish.yml`; nothing in either test tree referenced the manual `prune-rcs.yml` at all. So the
+automatic path — already fenced in by a stable-tag gate and six `needs:` — was pinned, while the
+manual path — a human aiming a registry-wide delete with nothing upstream of it — was pinned by
+nothing. That is how the two call sites drifted: dreame's manual dispatch had copied the shape of
+its own `publish.yml` and swallowed a non-zero exit into a `::warning::`, so a failed sweep reported
+success to whoever dispatched it.
+
+**The call sites now differ on purpose.** `publish.yml` swallows a failure, because by the time it
+runs the stable is published on all three registries and reddening the release sends somebody
+hunting a publishing failure that did not happen. `prune-rcs.yml` does **not** swallow one, because
+nothing is being released there. Reading one call site and "fixing" the other to match is the
+obvious wrong move, so both projects pin the manual path in
+`test_the_manual_prune_dispatch_cannot_delete_by_accident_or_report_a_failure_as_success`.
+
+That guard **allowlists the whole job** rather than probing it. The key set is compared whole at
+workflow, job and step level, so anything unlisted — `container`, `defaults`, `env`, `if`, `shell`,
+`continue-on-error`, `permissions`, `strategy` — fails without the test naming it. Within that shape:
+`workflow_dispatch` is the only trigger and `dry_run` its only input, `runs-on` is pinned by value,
+the checkout is `actions/checkout` at a full commit with inputs exactly `{ref: main}`, and the sweep
+is exactly `bash packaging/prune-rcs.sh` with an environment of exactly the four tokens plus
+`DRY_RUN: ${{ inputs.dry_run }}`.
+
+The allowlist is the point, because every blacklist here is incompletable, and each item below is a
+mutation the guard is verified against rather than a hypothetical. `||`, `; true`,
+`if ! cmd; then ... fi`, a pipeline, `set +e` and a custom `shell:` all turn a failed sweep green.
+First-match probing accepts a second checkout of the dispatch ref beside a compliant one, silently
+replacing the tree the reviewed script runs from. `ref: main` says nothing about *whose* main until
+`repository:` is excluded too, and `@main` or `@v7` reintroduces a moving target. A
+`${{ !inputs.dry_run }}` binding inverts the safe default while still naming the input. A job- or
+step-level `BASH_ENV` is sourced by the shell before the pinned command ever runs. A swapped secret
+keeps the key set intact while sending a credential to the wrong host, and the read failure that
+follows is one the script deliberately survives.
+
+**Note the ceiling on that last guarantee, and do not read it off annotation severity.** The script
+exits nonzero at only three points: it cannot enumerate the package registry, it cannot list a
+version's package files, or a transport error interrupts reading a stable. Everything else reaches an
+unconditional `exit 0` — including a failed package DELETE, which logs `::error::` and is then
+recorded as residue for a later sweep. Nor do the fatal paths line up with irrecoverability: an
+unreadable package registry is fatal while an equally transient unreadable release listing warns and
+returns 0. So a green manual run does not mean "swept clean", the warnings remain the real report,
+and not swallowing is what makes those three paths reach the maintainer at all. Folding the rest into
+the exit status would need a strict mode the shared script does not have.
+
+**And one limit no test in the tree can reach.** `workflow_dispatch` runs the workflow definition
+belonging to the ref it was dispatched from; the pinned checkout replaces the working tree only
+afterwards. So the guard binds *main's* copy of `prune-rcs.yml`, and dispatching an older ref runs
+that ref's copy — its own swallow, its own checkout, its own inputs. The pin decides which **script**
+runs, never which **workflow** does. Branches predating the pin stay dispatchable until they are
+deleted, which is why the operational half of this guarantee is not letting stale release branches
+linger in the forge.
+
 ## Secret input — converged on the guarantee, different in form
 
 A command line is world-readable through `ps` for as long as the command runs, so neither project

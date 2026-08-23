@@ -21,7 +21,7 @@ reality.**
    worth reading — several were solved twice, independently, by two projects that did not know the
    other had hit the same bug.
 
-There is a fourth category: gaps recorded as open. It is **not** empty — see the bottom of this file.
+There is a fourth category: gaps recorded as open. It is **empty** — see the bottom of this file.
 An open gap goes there, under its own heading, so it can never be mistaken for a decision.
 
 ---
@@ -44,7 +44,7 @@ both READMEs.
 **Queued, not divergent**: nothing. The PyInstaller policy and the move of arm64 work to native
 runners were the last two, and both are done — see that section.
 
-**Open gaps: one** — the update nudge's cache. See the last section.
+**Open gaps: none.**
 
 ---
 
@@ -567,11 +567,43 @@ is an nfpm error rather than a quiet omission, and its package smoke installs th
 because a truncated or altered one does not start. Same guarantee, reached by the means each
 artifact shape allows.
 
+## The update nudge — converged on asking the channel you are actually on
+
+Both projects nudge when a newer release exists, and both now pick the endpoint BY CHANNEL: a stable
+install asks `/releases/latest`, a candidate asks `/releases?per_page=10` and takes the newest tag it
+serves. Both cache per channel too, with the channel recorded inside the entry as well as in the
+filename — whiskerless in `.update-check` / `.update-check-rc`, dreame in `.update_check` /
+`.update_check_rc`, each following its own file-naming habit.
+
+`/releases/latest` **excludes prereleases**, so dreame previously could not tell a machine on an rc
+about a newer rc: the candidate channel was invisible to exactly the users who opted into it, which
+is the one group the nudge is most useful to. The port carried the CONDITION, not just the endpoint.
+Pointing every install at the enumerating URL would have fixed the candidate channel by offering
+stable users a prerelease their upgrade command cannot install — the opposite defect, and a louder
+one. Both halves are pinned by tests in both projects.
+
+The per-channel marker is the second half of the same fix, and the two have to land together. A
+stable and a candidate install share one home, and dreame's single marker recorded no channel and
+checked none. That was harmless only because every install asked `/releases/latest`: the marker could
+never hold anything but a stable tag, so there was nothing dangerous to leak across. Adding the
+candidate endpoint is what creates the exposure — now an rc's answer can sit in a marker a stable
+install reads, and it will offer a prerelease its upgrade command cannot install, without a network
+call in sight. Whiskerless met the other half of it: it validated the channel while keeping one file,
+so a mismatch was rejected and refetched, and every switch paid the full timeout the daily cache
+exists to avoid. One marker per channel, with the channel recorded inside it, closes both.
+
+The trap this laid for the port, and the reason it is worth recording: the marker name is derived
+from `__version__`, and the prerelease gate stamps an rc BEFORE running the suite. Four dreame tests
+spelled `.update_check` literally, so they passed on every branch and would have failed the one run
+that cuts a release. Both suites are now verified green under a properly stamped rc, and the tests
+that name a marker say which channel they mean.
+
 ## Still open, and NOT justified
 
-**One, recorded below.** Everything before it is closed.
+**None.** Everything above is closed.
 
-The most recent closure was openSUSE, which the cold audit reported as a version disagreement — one project pinned
+The most recent closure was the update nudge, recorded above. Before it came openSUSE, which the
+cold audit reported as a version disagreement — one project pinned
 Leap 15.6, the other 16.0. It was not that. Each tested openSUSE at a different STAGE for a different
 purpose, so neither had the other's coverage: dreame never installed its published `.rpm` on openSUSE
 at all, and whiskerless only ever tested a compatibility target. Both now run the same `zypper` and
@@ -580,30 +612,5 @@ pair the deb and rpm channels already used. What is still uneven is the pre-merg
 which dreame has and whiskerless does not; that is a difference in where breadth is bought, not a
 gap in what ships, and both projects install-test every channel they publish.
 
-### The update nudge is blind to the candidate channel in dreame-valetudo
-
-Both projects nudge when a newer release exists. Whiskerless picks the endpoint BY CHANNEL: a stable
-install asks `/releases/latest`, a candidate asks `/releases?per_page=10` and takes the newest tag it
-serves. It caches per channel too — `.update-check` for stable, `.update-check-rc` for a candidate,
-with the channel recorded inside the entry as well as in the filename. Dreame Valetudo asks
-`/releases/latest` for everything and writes a single `.update_check`.
-
-`/releases/latest` **excludes prereleases**. A dreame machine on an rc therefore cannot be told about
-a newer rc: the candidate channel is invisible to exactly the users who opted into it, which is the
-one group the nudge is most useful to. Whiskerless hit this and fixed it; the fix has not been ported.
-
-Port the CONDITION, not just the endpoint. Pointing every install at `/releases?per_page=10` would
-make a stable install offer a prerelease its upgrade command cannot install — the opposite defect,
-and a louder one.
-
-The per-channel marker is the second half of the same fix. A stable and a candidate install can share
-one home, and a single marker lets one channel's answer be served to the other.
-
-The trap for whoever ports it: the marker name is derived from `__version__`, so a test that spells
-one marker literally passes only while the checkout happens to carry that kind of version — and a
-prerelease gate stamps an rc BEFORE running the suite. Whiskerless pins the channel explicitly and
-runs those tests on both. An equivalent in dreame has to do the same, or it passes on every branch and
-fails on the one run that cuts a release.
-
 This section is meant to stay empty. A gap recorded here is a promise to close it, not a place to
-retire one — so the entry above is work owed, not a decision taken.
+retire one.

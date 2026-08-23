@@ -494,6 +494,12 @@ sweep could not establish that a stable replaces the candidate in apt/dnf. It is
 from residue precisely because nothing was deleted, and separately from an ordinary keep because a
 sweep that could not see is not a sweep that found nothing to do.
 
+It is decided **per candidate, at the keep site** — not per failed lookup. A candidate is undetermined
+only when *every* reason it was kept was an unanswered question; one definite reason (the stable is
+provably absent from a distribution) settles the outcome by itself, and an unreadable index sitting
+beside it changed nothing. Counting per lookup instead would redden sweeps whose decision was never
+in doubt, and a guard that fires when the answer was certain is one an operator learns to skip.
+
 Even under `STRICT`, green certifies only that the sweep ran to completion with all three counters at
 zero — never that any particular rc was removed, so the log remains the real report.
 

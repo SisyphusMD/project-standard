@@ -602,9 +602,9 @@ fi
 
 fail=0
 pruned=0
-# Kept for a reason that is not "the stable has not shipped": an index that could not be read answers
-# nothing, so the candidate stays. Counted apart from `fail` because nothing was deleted, and apart
-# from an ordinary keep because a sweep that could not see is not a sweep that found nothing.
+# Candidates kept with no answer at all, as opposed to a definite answer of "not yet replaced".
+# Counted apart from `fail` because nothing was deleted, and apart from an ordinary keep because a
+# sweep that could not see is not a sweep that found nothing. Decided once per tag, at the keep site.
 undetermined=0
 while IFS= read -r stem; do
   [ -n "$stem" ] || continue
@@ -654,8 +654,7 @@ while IFS= read -r stem; do
           if index_has "$ptype" "$pdist" "$parch" "$pversion"; then here_code=0; else here_code=$?; fi
           [ "$here_code" -eq 1 ] && continue          # candidate not served here
           if [ "$here_code" -eq 2 ]; then
-            missing_stable="$missing_stable $ptype/$pdist(unreadable)"
-            undetermined=$((undetermined + 1)); continue
+            missing_stable="$missing_stable $ptype/$pdist(unreadable)"; continue
           fi
           # Both lookups are classified the same way. Collapsing "the stable is not here" and "I could
           # not ask" into one `||` reads the second as evidence of the first, which is how an
@@ -663,7 +662,6 @@ while IFS= read -r stem; do
           if index_has "$ptype" "$pdist" "$parch" "$sversion"; then there_code=0; else there_code=$?; fi
           if [ "$there_code" -eq 2 ]; then
             missing_stable="$missing_stable $ptype/$pdist(unreadable)"
-            undetermined=$((undetermined + 1))
           elif [ "$there_code" -ne 0 ]; then
             missing_stable="$missing_stable $ptype/$pdist"
           fi
@@ -674,6 +672,13 @@ while IFS= read -r stem; do
       # Deduplicated: the checks run per architecture, so one missing distribution is otherwise
       # reported once for each.
       echo "keep: $tag — $stem does not yet replace it in:$(printf '%s' "$missing_stable" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+      # Undetermined only when EVERY reason to keep was an unanswered question. One definite reason
+      # settles the outcome on its own, and an unreadable index sitting beside it changed nothing —
+      # counting that would redden a sweep whose decision was never in doubt, and a guard that cries
+      # wolf is one an operator learns to skip.
+      if ! printf '%s' "$missing_stable" | tr ' ' '\n' | grep -v '^$' | grep -qv '(unreadable)$'; then
+        undetermined=$((undetermined + 1))
+      fi
       continue
     fi
 
@@ -726,7 +731,7 @@ if [ "$fail" -gt 0 ]; then
 fi
 if [ "$undetermined" -gt 0 ]; then
   if [ -n "$report" ]; then report="$report; also "; fi
-  report="${report}could not read a package index on $undetermined check(s), so the candidates those cover were kept with their safety unestablished"
+  report="${report}could not read a package index for $undetermined candidate(s), so they were kept with their safety unestablished"
 fi
 
 if [ -z "$report" ]; then

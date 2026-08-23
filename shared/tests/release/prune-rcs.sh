@@ -22,7 +22,8 @@
 # takes on a retry), STICKY_RELEASE (a release delete that persistently 500s), UNREADABLE (a registry
 # whose reads fail), UNREADABLE_INDEX (only the apt/dnf index fails, so enumeration succeeds and the
 # replacement check cannot be answered), UNREADABLE_STABLE_INDEX (only the stable's index read
-# fails, the candidate's succeeds).
+# fails, the candidate's succeeds), UNREADABLE_INDEX_DIST=<dist> (only that distribution's index
+# fails, so a candidate can hold one definite keep reason and one unanswered question at once).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -153,6 +154,13 @@ case "$url" in
     # stable is only asked about once the candidate answered. A global ordinal would not work, since
     # a candidate that is simply absent from a distribution ends that pair with no stable read at all
     # and slides every later count by one.
+    # One distribution's index only, so a candidate can have a DEFINITE keep reason from another.
+    if [ -n "${UNREADABLE_INDEX_DIST:-}" ]; then
+      case "$url" in
+        */dists/"$UNREADABLE_INDEX_DIST"/*|*/rpm/"$UNREADABLE_INDEX_DIST"/*)
+          emit 503 '{"message":"index unavailable"}' ;;
+      esac
+    fi
     if [ -n "${UNREADABLE_STABLE_INDEX:-}" ]; then
       key=$(printf '%s' "$url" | tr -c 'a-zA-Z0-9' '_')
       hits=$(cat "$STATE/idx-$key" 2>/dev/null || echo 0)
@@ -564,6 +572,36 @@ case "$out" in
   *"could not read a package index"*) ;;
   *) fail "the composed report dropped the unreadable-index half: $out" ;;
 esac
+survivor
+
+# A definite keep reason and an unanswered one, on the same candidate. The outcome was never in
+# doubt — the stable is provably absent from testing — so the unreadable stable-distribution index
+# changed nothing and must not redden a STRICT sweep. A guard that fires when the answer was certain
+# is one an operator learns to skip.
+reset
+# The stable must EXIST as a version, or the check short-circuits on "no package of that type"
+# and never reaches an index at all. It is served only in `stable`, so `testing` is a definite
+# miss while `stable` is the distribution whose index will not answer.
+pkgset "debian 1.0.0~rc.1 amd64 testing" "debian 1.0.0~rc.1 amd64 stable" \
+       "debian 1.0.0 amd64 stable"
+out="$(run DRY_RUN=false UNREADABLE_INDEX_DIST=stable)"
+[ "$(deletes)" = 0 ] || fail "pruned a candidate the stable does not replace: $out"
+case "$out" in
+  *"(unreadable)"*) ;;
+  *) fail "the fixture did not actually produce an unreadable distribution: $out" ;;
+esac
+case "$out" in
+  *"could not read a package index"*)
+    fail "an unreadable index was called undetermined next to a definite keep reason: $out" ;;
+esac
+reset
+# The stable must EXIST as a version, or the check short-circuits on "no package of that type"
+# and never reaches an index at all. It is served only in `stable`, so `testing` is a definite
+# miss while `stable` is the distribution whose index will not answer.
+pkgset "debian 1.0.0~rc.1 amd64 testing" "debian 1.0.0~rc.1 amd64 stable" \
+       "debian 1.0.0 amd64 stable"
+[ "$(status DRY_RUN=false UNREADABLE_INDEX_DIST=stable STRICT=true)" = 0 ] \
+  || fail "STRICT reddened a sweep whose keep decision was definite"
 survivor
 
 # A stable serving a DIFFERENT architecture does not replace the candidate for the one it serves.

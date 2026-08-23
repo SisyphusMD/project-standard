@@ -144,7 +144,11 @@ Every item below is a scar. Treat them as settled.
 A script Renovate runs on the update branch executes **inside Renovate's own container**, not your
 CI image. That container is Node-based and carries none of your toolchain.
 
-- No `python3`. No assuming GNU-only utility flags.
+- Write in pure shell by default, and assume no GNU-only utility flags. The image happens to ship
+  a `python3` today, but that is an accident of how it is built, not a promise it makes: treat it
+  as absent unless a script checks for it and fails closed with a message naming what is missing.
+  A task that reaches for an interpreter it never verified fails on a future image rebuild with a
+  bare `command not found`, on an update branch nobody is watching.
 - Handle both checksum spellings: `sha256sum` on Linux runners, `shasum -a 256` on macOS.
 - **Refuse to write a digest you could not fetch.** A pin invented after a failed download makes
   every later build verify against nothing. Note that a failed `curl` piped into a hasher still

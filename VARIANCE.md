@@ -460,8 +460,8 @@ workflow, job and step level, so anything unlisted — `container`, `defaults`, 
 `continue-on-error`, `permissions`, `strategy` — fails without the test naming it. Within that shape:
 `workflow_dispatch` is the only trigger and `dry_run` its only input, `runs-on` is pinned by value,
 the checkout is `actions/checkout` at a full commit with inputs exactly `{ref: main}`, and the sweep
-is exactly `bash packaging/prune-rcs.sh` with an environment of exactly the four tokens plus
-`DRY_RUN: ${{ inputs.dry_run }}`.
+is exactly `bash packaging/prune-rcs.sh` with an environment of exactly the four tokens,
+`DRY_RUN: ${{ inputs.dry_run }}` and `STRICT: "true"`.
 
 The allowlist is the point, because every blacklist here is incompletable, and each item below is a
 mutation the guard is verified against rather than a hypothetical. `||`, `; true`,
@@ -474,15 +474,24 @@ step-level `BASH_ENV` is sourced by the shell before the pinned command ever run
 keeps the key set intact while sending a credential to the wrong host, and the read failure that
 follows is one the script deliberately survives.
 
-**Note the ceiling on that last guarantee, and do not read it off annotation severity.** The script
-exits nonzero at only three points: it cannot enumerate the package registry, it cannot list a
-version's package files, or a transport error interrupts reading a stable. Everything else reaches an
-unconditional `exit 0` — including a failed package DELETE, which logs `::error::` and is then
-recorded as residue for a later sweep. Nor do the fatal paths line up with irrecoverability: an
-unreadable package registry is fatal while an equally transient unreadable release listing warns and
-returns 0. So a green manual run does not mean "swept clean", the warnings remain the real report,
-and not swallowing is what makes those three paths reach the maintainer at all. Folding the rest into
-the exit status would need a strict mode the shared script does not have.
+**`STRICT` is what makes that exit status mean something, and the two callers set it differently on
+purpose.** The script's own view is that a sweep either finished or stopped; how a stop is *reported*
+is the caller's call. `publish.yml` leaves `STRICT` unset, because it runs once a stable is already
+published on all three registries and a non-zero exit there reddens a release that succeeded.
+`prune-rcs.yml` sets `STRICT: "true"`, because nothing is being released and the operator who pressed
+Run needs the status to mean the sweep worked.
+
+It parses **fail-safe** — anything but an exact `"true"` is non-strict — which is deliberately the
+mirror of `DRY_RUN`'s fail-closed parse. `DRY_RUN` guards deletion, so ambiguity must mean "preview";
+`STRICT` guards only reporting, so ambiguity must mean "stay quiet" rather than start reddening
+published releases. A forge input passed through unevaluated is a case in the suite for both.
+
+Before this existed the halves disagreed by accident rather than by decision: an unreadable release
+listing warned and returned 0 while an equally transient unreadable **package** registry errored and
+returned 1, and a failed package DELETE logged `::error::` yet still reached the unconditional
+`exit 0`. Every one of those now routes through a single `stop`, and residue follows the same rule.
+Even under `STRICT`, green still does not certify that anything was deleted — only that the sweep ran
+to completion — so the warnings remain the real report.
 
 **And one limit no test in the tree can reach.** `workflow_dispatch` runs the workflow definition
 belonging to the ref it was dispatched from; the pinned checkout replaces the working tree only

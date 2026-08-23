@@ -368,6 +368,49 @@ for reg in cluster nas github; do
   esac
 done
 
+# --- STRICT: one stop, reported two ways --------------------------------------------------------
+# STRICT changes the exit status and nothing else. The automatic caller leaves it off so a janitorial
+# failure cannot redden a release that already published on all three registries; the manual dispatch
+# turns it on so whoever pressed Run learns the sweep did not finish. Every case below therefore
+# checks the deletion count too: a reporting knob that changed behaviour would be the worst outcome.
+status() { # status [VAR=val ...] -> the script's exit code, which run() deliberately discards
+  local rc=0
+  env PATH="$TMP:$PATH" STATE="$STATE" FAKE_PKG="$FAKE_PKG" PRUNE_RETRY_SLEEP=0 \
+    CLUSTER_TOKEN=t NAS_TOKEN=t GH_TOKEN=t PACKAGE_TOKEN=t \
+    "$@" bash "$ROOT/packaging/prune-rcs.sh" >/dev/null 2>&1 || rc=$?
+  echo "$rc"
+}
+
+reset
+[ "$(status DRY_RUN=false UNREADABLE=cluster)" = 0 ] \
+  || fail "an unreadable registry reddened the default sweep, which publish.yml runs after a release"
+
+reset
+[ "$(status DRY_RUN=false UNREADABLE=cluster STRICT=true)" = 1 ] \
+  || fail "STRICT did not surface an unreadable registry"
+[ "$(deletes)" = 0 ] || fail "STRICT changed what was deleted; it may only change reporting"
+
+# Fail SAFE, the mirror image of DRY_RUN's fail-closed parse: anything but an exact "true" stays
+# quiet, so a caller passing the input through unevaluated cannot start reddening published releases.
+# shellcheck disable=SC2016  # the unexpanded literal IS the case: a forge input passed through
+for spelling in 1 yes TRUE True '${{ inputs.strict }}'; do
+  reset
+  [ "$(status DRY_RUN=false UNREADABLE=cluster STRICT="$spelling")" = 0 ] \
+    || fail "STRICT=$spelling was treated as strict"
+done
+
+# A sweep that finished is a success in both modes.
+reset
+[ "$(status DRY_RUN=false STRICT=true)" = 0 ] || fail "STRICT reddened a sweep that completed"
+survivor
+
+# Residue is the one outcome where the sweep RAN and still left work behind, and it follows the same
+# rule: quiet for the release path, loud for the operator who asked.
+reset
+[ "$(status DRY_RUN=false STUBBORN=1)" = 0 ] || fail "residue reddened the default sweep"
+reset
+[ "$(status DRY_RUN=false STUBBORN=1 STRICT=true)" = 1 ] || fail "STRICT did not surface residue"
+
 # --- the orphan tag ----------------------------------------------------------------------------
 # A previous partial sweep can delete an rc's release and fail before its tag. Enumerating only the
 # release listing would never name that tag again, so it would survive every future sweep.

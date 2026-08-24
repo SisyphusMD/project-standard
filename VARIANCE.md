@@ -99,6 +99,23 @@ a separate process, which is aggregation rather than a combined work. Keep the S
 | **Source layout** | `src/` package | `src/` package — **converged 2026-08-20** |
 | **Dependency policy** | Library-compatible **lower bounds**, so downstreams can resolve | Application **exact pins** plus a committed `uv.lock` |
 | **Still shared** | Both exercise the literal interpreter floor in CI. Both exact-pin the *development* toolchain (ruff/mypy/pytest), because a lint release must never redden `main` with no code change |
+| **Where that toolchain pin lives** | `pyproject.toml` alone; the workflows grep the version back out of it | `pyproject.toml` **and** `uv.lock` **and** annotated literals in the workflows, kept equal by `test_pinned_toolchain_matches_the_lockfile` |
+
+Both pin exactly and both are raised by Renovate's `pep621` manager. What differs is how many copies
+of the version exist. Whiskerless keeps one: its workflows install the dev extra straight from
+`pyproject.toml`, so a second copy would be a second source of truth for something already stated.
+Dreame Valetudo's workflows `pip install` the version as a literal while `uv run` resolves it from
+`uv.lock`, so the same number lives in three kinds of place — `pyproject.toml`, `uv.lock`, and a
+literal in each workflow that lints or tests, currently seven physical copies. The `pyproject.toml`
+pin is `==` rather than a floor precisely so `pep621` has something to raise: that is what lets the
+lockfile relock in the same PR as the literals instead of trailing a commit behind.
+
+Neither shape is better in the abstract. Whiskerless needs no agreement check because it has nothing
+to keep in agreement; Dreame's seven copies are only safe because
+`test_pinned_toolchain_matches_the_lockfile` compares every one of them against `uv.lock`. It did
+not always: it read a single workflow, and a ruff bump duly reached the Forgejo workflows,
+`pyproject.toml` and the lockfile while GitHub's PR lint stayed a release behind, silently.
+
 
 Both use `src/` now. Dreame was flat, and the argument for leaving it there was that the risk `src/`
 mitigates — a module missing from the built wheel still passing every test, because a flat layout

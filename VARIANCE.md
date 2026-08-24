@@ -619,15 +619,27 @@ that name a marker say which channel they mean.
 
 **None.** Everything above is closed.
 
-The most recent closure was the update nudge, recorded above. Before it came openSUSE, which the
-cold audit reported as a version disagreement — one project pinned
+The most recent closure was the package matrix's distro depth, described at the end of this section.
+Before it came the update nudge, recorded above, and before that openSUSE, which the cold audit
+reported as a version disagreement — one project pinned
 Leap 15.6, the other 16.0. It was not that. Each tested openSUSE at a different STAGE for a different
 purpose, so neither had the other's coverage: dreame never installed its published `.rpm` on openSUSE
 at all, and whiskerless only ever tested a compatibility target. Both now run the same `zypper` and
 `zypper-floor` channels, on the same two images, against the published `.rpm` — the floor/current
-pair the deb and rpm channels already used. What is still uneven is the pre-merge distro matrix,
-which dreame has and whiskerless does not; that is a difference in where breadth is bought, not a
-gap in what ships, and both projects install-test every channel they publish.
+pair the deb and rpm channels already used.
+
+The openSUSE fix turned out to be one instance of a wider shape, and the rest of it stayed open for
+a while afterwards. Dreame published one `.deb` and one `.rpm` for every distro in the family but
+installed each on exactly one host — Debian 13 and Rocky 9 — so the `.rpm` never touched Fedora or
+the Rocky 8 floor, and the `.deb` never touched a current Ubuntu. Whiskerless added all three on
+2026-08-20, and its channel list names the digests as the ones "dreame-valetudo qualifies against":
+dreame did qualify against those images, in its pre-merge matrix, building from source.
+Nothing installed the artifact it actually ships. Dreame now runs `deb-file-ubuntu`,
+`rpm-file-floor` and `rpm-file-fedora` beside the channels it already had.
+
+What is still uneven is the pre-merge distro matrix, which dreame has and whiskerless does not; that
+is a difference in where breadth is bought, not a gap in what ships. Both projects install-test
+every channel they publish, on the same images, from the published artifact.
 
 This section is meant to stay empty. A gap recorded here is a promise to close it, not a place to
 retire one.

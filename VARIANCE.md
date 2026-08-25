@@ -362,17 +362,71 @@ Dreame `rc.13`. Neither fix reached the other until this audit.
 
 **Neither fix is load-bearing any more.** Both projects now build each architecture on its own
 hardware — amd64 on the Forgejo runner, arm64 on GitHub's native arm runner, nothing emulated
-anywhere — and a natively-built onefile app's parent is the app. The bug cannot occur.
+anywhere — and a natively-built onefile app's parent is the app. The bug cannot occur. So the pin is
+gone from Whiskerless along with its watch script, and PyInstaller tracks upstream in both.
 
-So the pin is gone from Whiskerless along with its watch script, and PyInstaller tracks upstream in
-both. What remains is a real but small variance, and one worth keeping:
+**Two separate decisions live here, and merging them produces confident wrong answers.** They were
+merged in this entry until 2026-08-24, and the reader who merged them argued twice that dreame's
+helper executables require onedir. They do not: macOS ships those same helpers beside a **onefile**
+app.
 
-- **Whiskerless ships onefile**: one downloadable file, which suits a tool someone runs once from a
-  laptop to re-point a robot.
-- **Dreame ships onedir**, packed as a tarball with a launcher that resolves its own directory and
-  exports `DREAME_LIBEXEC`. It could go back to onefile now and has no reason to — the tarball is a
-  working channel with its own smoke test, and churning a shipped artifact shape to match a sibling
-  is not convergence, it is uniformity for its own sake.
+**Decision 1 — the bundle mode: invisible in what you download, visible in how it runs.** It
+governs how PyInstaller lays out one frozen app. In the PACKAGED channels — `.pkg`, `.deb`, `.rpm`,
+the tap — it changes no filename and no channel, because a package wraps either shape. It reaches
+the standalone channel directly, which is Decision 2 below: a bare executable is only possible
+because whiskerless is onefile. And it is not cosmetic anywhere: onefile unpacks on every invocation and needs
+an executable temp dir, which is behaviour a user meets at runtime. Whiskerless uses onefile everywhere. Dreame
+chooses per platform, with different footing under each — the macOS choice is platform-driven, the Linux one is not:
+
+| | Mode | Why, today |
+|---|---|---|
+| Dreame, macOS | onefile | one Mach-O to codesign per frozen app, not an executable plus every `.so` |
+| Dreame, Linux | onedir | retained shape; avoids needing an executable temp dir (see below) |
+| Whiskerless, both | onefile | short-lived, infrequent runs; a single file is the friendlier artifact |
+
+Notarization is not the reason: `notarytool submit` and `stapler staple` act on the finished `.pkg`
+whatever its insides look like. What onefile saves is codesigning surface — one Mach-O per frozen
+app instead of the executable plus every shared object beside it. That much is demonstrable.
+
+**What the Linux side rests on is thinner, and this entry has been rewritten twice for claiming
+otherwise.** Two rationales were offered and neither survived: that dreame's helper executables
+require onedir (macOS ships the same helpers beside a onefile app), and that dreame pays onefile's
+per-invocation unpack repeatedly. It would pay it TWICE — the outer process unpacks, then re-execs
+itself under tmux, which unpacks again — and then not at all, because the session is long-lived.
+Bounded, not recurring. What actually remains:
+
+- **Real, and the only technical point standing:** a onefile app extracts to a temp directory and
+  execs from there, so it cannot run where `TMPDIR` is mounted `noexec`. A onedir bundle never
+  touches temp. Nobody has reported hitting this, so treat it as a property rather than an incident.
+- **Honest, and the reason to leave it alone:** the standalone channel ships this tree, and churning
+  a shipped artifact's layout to make two unrelated projects match is uniformity, not convergence.
+
+So: macOS onefile is platform-driven. Linux onedir is retained shape with one residual robustness
+property. Recording it as fully platform-driven would repeat the overclaim this rewrite exists to
+remove — and whoever revisits it should know the original cause (the QEMU bootloader check) is dead,
+so the question is open rather than settled by history.
+
+**Decision 2 — the standalone download shape.** This is the only place the difference reaches the
+download itself. Decision 1 does reach it — a onedir app is a tree and cannot ship as a bare
+executable — but the helpers would demand a container even if the mode were onefile, so the two
+reasons compound rather than either standing alone:
+
+- **Whiskerless ships one bare binary.** It has no helper executables — its work is MQTT and BLE
+  through in-process Python libraries — so a single file is the whole tool.
+- **Dreame ships a `.tar.gz`** of the tree with a launcher that exports `DREAME_LIBEXEC`, because
+  the download must carry `dreame-fastboot` and `sunxi-fel` alongside the app. `sunxi-fel` is a C
+  program from `linux-sunxi/sunxi-tools`; the Allwinner FEL protocol has no Python implementation.
+
+Every other channel is one download in both projects. What that download then needs differs and is
+worth stating precisely: the macOS `.pkg` carries its own dylibs and `tmux` into `libexec`, so it
+installs without reaching the network, while the `.deb` and `.rpm` declare runtime dependencies —
+libusb, libfdt, curl, ssh, tmux and the archive tools among them — that apt or dnf resolve at
+install time. Neither is a defect; a
+distro package that vendored its dependencies would be the wrong artifact. (Dreame separately
+downloads a stage1 payload and Valetudo itself while running, because putting those on a robot is
+the job.) Changing either decision now would churn a
+shipped artifact to make two unrelated projects look alike, which is uniformity rather than
+convergence.
 
 One rule — build natively, freeze once, ship something a user can extract and run — with two
 correct outputs.

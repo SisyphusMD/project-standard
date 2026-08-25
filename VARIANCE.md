@@ -691,6 +691,21 @@ dreame did qualify against those images, in its pre-merge matrix, building from 
 Nothing installed the artifact it actually ships. Dreame now runs `deb-file-ubuntu`,
 `rpm-file-floor` and `rpm-file-fedora` beside the channels it already had.
 
+A later sweep of the whole ladder — every family, floor against current — found three more of the
+same shape. Rocky 10 had been the current release of the RPM family for a while and neither project
+installed the shipped `.rpm` on it: dreame built against it pre-merge, whiskerless did not pin it at
+all. Fedora's dnf5 is a reimplementation rather than a new version, parsing `.repo` files and
+enforcing `gpgcheck` in its own code, so the Rocky 9 dnf4 leg proved nothing about the client a
+current-Fedora subscriber actually gets. Both now run `rpm-file-current` and `dnf5-repo`. The third
+was an architecture rather than a distro: dreame poured the bottle on amd64 only, on the stated
+reasoning that the linuxbrew image had no arm64 build. It has one, and whiskerless had been pouring
+on both arches for as long as the channel existed.
+
+The same sweep found the images themselves carrying two Renovate identities. Dreame annotated Debian
+12 and Ubuntu 22.04 as `-floor` where every other annotation in both projects called them `-compat`,
+which meant one image answered to two depNames under two separate clamps that were free to drift
+apart. One identity per image now, and the duplicate rules are gone.
+
 What is still uneven is the pre-merge distro matrix, which dreame has and whiskerless does not; that
 is a difference in where breadth is bought, not a gap in what ships. Both projects install-test
 every channel they publish, on the same images, from the published artifact.

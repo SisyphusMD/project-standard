@@ -80,8 +80,94 @@ echo "every request profile is time-bounded, and mutations are not retried"
 [[ "${REL_READ[*]}" == *--max-time* ]]; check "REL_READ is bounded" 0 $?
 [[ "${REL_DOWNLOAD[*]}" == *--max-time* ]]; check "REL_DOWNLOAD is bounded" 0 $?
 [[ "${REL_MUTATE[*]}" == *--max-time* ]]; check "REL_MUTATE is bounded" 0 $?
-# A timed-out mutation may already have been applied; repeating it duplicates rather than recovers.
-[[ "${REL_MUTATE[*]}" != *--retry* ]]; check "REL_MUTATE is NOT retried" 0 $?
+# curl cannot tell a write that never landed from one that landed and lost its reply, so the retry
+# lives in rel_upload_verified instead, where it can look before it writes.
+[[ "${REL_MUTATE[*]}" != *--retry* ]]; check "REL_MUTATE is NOT retried at the curl layer" 0 $?
+
+echo "rel_upload_verified retries writes, and the look-before-writing is what makes that safe"
+
+# A connection that breaks AFTER the forge commits is indistinguishable from one that never landed.
+# The re-check is what tells them apart, so the asset must not be sent a second time.
+res=$(
+  uploads=0; looks=0
+  rel_asset_state() { looks=$((looks + 1)); [ "$looks" -ge 2 ] && return 0; return 10; }
+  upload_asset() { uploads=$((uploads + 1)); return 1; }
+  sleep() { :; }
+  rel_upload_verified list name file LABEL >/dev/null 2>&1; rc=$?
+  echo "$rc $uploads"
+)
+check "a write that already landed is recognised, not repeated" "0 1" "$res"
+
+# The ordinary transient: the first attempt genuinely did not land, so writing again is the fix.
+res=$(
+  uploads=0
+  rel_asset_state() { return 10; }
+  rel_verify_uploaded_asset() { return 0; }
+  upload_asset() { uploads=$((uploads + 1)); [ "$uploads" -ge 2 ]; }
+  sleep() { :; }
+  rel_upload_verified list name file LABEL >/dev/null 2>&1; rc=$?
+  echo "$rc $uploads"
+)
+check "a write that did not land is retried until it does" "0 2" "$res"
+
+# 11 is a verdict about the bytes. Retrying it would just re-lose the same race.
+res=$(
+  uploads=0
+  rel_asset_state() { return 11; }
+  upload_asset() { uploads=$((uploads + 1)); return 0; }
+  sleep() { :; }
+  rel_upload_verified list name file LABEL >/dev/null 2>&1; rc=$?
+  echo "$rc $uploads"
+)
+check "a byte conflict ends the loop instead of retrying" "1 0" "$res"
+
+# The one that matters most: 12 means the forge was never actually asked. Writing on an unanswered
+# question is how an upload that already landed gets sent a second time.
+res=$(
+  uploads=0
+  rel_asset_state() { return 12; }
+  upload_asset() { uploads=$((uploads + 1)); return 0; }
+  sleep() { :; }
+  rel_upload_verified list name file LABEL >/dev/null 2>&1; rc=$?
+  echo "$rc $uploads"
+)
+check "an unanswered state check never licenses a write" "1 0" "$res"
+
+echo "a failed request is told apart from an unreadable one"
+
+# Folding these together is what let a dropped connection read as a content conflict.
+res=$(
+  auth=()
+  curl() { return 7; }
+  rel_asset_state "http://example.invalid" name file >/dev/null 2>&1; echo $?
+)
+check "rel_asset_state reports a failed request as 12, not 1" 12 "$res"
+
+# 12 says "we could not find out", which is never grounds to declare the upload lost.
+res=$(
+  tries=0
+  rel_asset_state() { tries=$((tries + 1)); [ "$tries" -ge 3 ] && return 0; return 12; }
+  sleep() { :; }
+  rel_verify_uploaded_asset list name file >/dev/null 2>&1; rc=$?
+  echo "$rc $tries"
+)
+check "rel_verify_uploaded_asset keeps looking after a 12" "0 3" "$res"
+
+# A retried read must land in a file curl can truncate, not on a stdout it cannot rewind. Reading
+# the body back from the -o path is what proves it went there.
+res=$(
+  auth=()
+  curl() {
+    local out=""
+    while [ $# -gt 0 ]; do
+      if [ "$1" = "-o" ]; then out=$2; shift 2; continue; fi
+      shift
+    done
+    printf '{"ok":1}' > "$out"
+  }
+  rel_read_json "http://example.invalid"
+)
+check "rel_read_json reads the body from a truncatable file" '{"ok":1}' "$res"
 
 echo
 echo "$pass passed, $fail failed"

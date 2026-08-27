@@ -156,6 +156,13 @@ upload() {  # upload <file> <upload-url>
     code=$(curl --max-time 300 -sS -o "$body" -w '%{http_code}' -X PUT \
       -H "$auth" --upload-file "$1" "$2") && break
     if [ "$attempt" -ge 4 ]; then
+      # The transfer may have STORED the bytes and lost the response on the way back, which is what
+      # a reset mid-upload looks like from here. Failing now would redden a release that actually
+      # published. Ask the registry what it holds before giving up — the same question the 409 path
+      # asks, and the only one that can tell those two outcomes apart.
+      if remote_matches "$1" "$(download_url "$1" "$2")"; then
+        echo "    $(basename "$1") → stored despite a lost response (bytes verified)"; return 0
+      fi
       echo "::error::PUT $2 failed to complete after $attempt attempts" >&2; return 1
     fi
     echo "    $(basename "$1") → transfer failed, retrying ($attempt)"

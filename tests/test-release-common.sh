@@ -73,16 +73,18 @@ done
 once=$(rel_github_asset_name "whiskerless_0.2.0~rc.35_amd64.deb")
 check "normalisation is idempotent" "$once" "$(rel_github_asset_name "$once")"
 
+# The status is built explicitly rather than read from `$?`: after a condition, `$?` is the
+# condition's own status, and any command inserted before the read replaces it silently.
 echo "publication defaults are the safe ones"
-[ "$REL_REPLACE_POLICY" = immutable ]; check "REL_REPLACE_POLICY defaults to immutable" 0 $?
+rc=0; [ "$REL_REPLACE_POLICY" = immutable ] || rc=1; check "REL_REPLACE_POLICY defaults to immutable" 0 "$rc"
 
 echo "every request profile is time-bounded, and mutations are not retried"
-[[ "${REL_READ[*]}" == *--max-time* ]]; check "REL_READ is bounded" 0 $?
-[[ "${REL_DOWNLOAD[*]}" == *--max-time* ]]; check "REL_DOWNLOAD is bounded" 0 $?
-[[ "${REL_MUTATE[*]}" == *--max-time* ]]; check "REL_MUTATE is bounded" 0 $?
+rc=0; [[ "${REL_READ[*]}" == *--max-time* ]] || rc=1; check "REL_READ is bounded" 0 "$rc"
+rc=0; [[ "${REL_DOWNLOAD[*]}" == *--max-time* ]] || rc=1; check "REL_DOWNLOAD is bounded" 0 "$rc"
+rc=0; [[ "${REL_MUTATE[*]}" == *--max-time* ]] || rc=1; check "REL_MUTATE is bounded" 0 "$rc"
 # curl cannot tell a write that never landed from one that landed and lost its reply, so the retry
 # lives in rel_upload_verified instead, where it can look before it writes.
-[[ "${REL_MUTATE[*]}" != *--retry* ]]; check "REL_MUTATE is NOT retried at the curl layer" 0 $?
+rc=0; [[ "${REL_MUTATE[*]}" != *--retry* ]] || rc=1; check "REL_MUTATE is NOT retried at the curl layer" 0 "$rc"
 
 echo "rel_upload_verified retries writes, and the look-before-writing is what makes that safe"
 

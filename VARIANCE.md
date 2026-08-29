@@ -671,6 +671,23 @@ spelled `.update_check` literally, so they passed on every branch and would have
 that cuts a release. Both suites are now verified green under a properly stamped rc, and the tests
 that name a marker say which channel they mean.
 
+## The privacy guards — the MAC half converged, the serial half cannot
+
+Both repos gate their tree against committed hardware addresses, with the same matcher:
+colon, hyphen, Cisco-dotted and `bytes.fromhex` spellings, six-group runs judged by whole
+token so an IPv6 address is not mistaken for one, and a run containing an approved fixture
+taken to be that fixture.
+
+whiskerless additionally gates **serials**, and dreame-valetudo deliberately does not. This
+is not drift. An LR4 serial has a fixed shape — `LR4C` and six digits — that a pattern can
+recognise, and it is unusually sensitive there because it doubles as the MQTT client-id and
+both topic segments. A Dreame serial is `[A-Za-z0-9][A-Za-z0-9._-]{5,63}`: almost any token,
+so the same guard would match ordinary prose on every run. A test that always fails is a test
+somebody deletes, which would leave the repo worse off than having none.
+
+If Dreame serials ever gain a recognisable prefix, this becomes convergeable and should be
+revisited. Until then the MAC guard is the whole of what transfers.
+
 ## Still open, and NOT justified
 
 **None.** Everything above is closed.

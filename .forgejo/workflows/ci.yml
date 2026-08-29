@@ -66,7 +66,13 @@ jobs:
         # repo's own tests never checked.
         run: bash shared/packaging/shellcheck-all.sh "$GITHUB_WORKSPACE"
       - name: Release-helper unit tests
-        run: bash tests/test-release-common.sh
+        # Every tests/*.sh, discovered rather than listed: a test named here one at a time is
+        # a test somebody forgets to add, and an unrun test reads as coverage without being any.
+        run: |
+          for t in tests/test-*.sh; do
+            echo "== $t"
+            bash "$t"
+          done
 
   vendor:
     name: The standard can actually be vendored

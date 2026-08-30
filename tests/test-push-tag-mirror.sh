@@ -26,9 +26,14 @@ PUSHED_SHA=1111111111111111111111111111111111111111
 
 run_mirror_block() {
   local code="$1" served="$2" script
-  script=$(sed -n '/^mirror_ref_json=/,/^done$/p' shared/packaging/push-tag.sh)
+  # The token assertion lives above the push (so a missing one cannot leave a tag pushed), and
+  # the mirror block below it. Take the two pieces and skip the push in between, so this exercises
+  # the requirement without needing to stub git's network side.
+  script="$(grep -m1 'GH_REPO_READ_PAT:?' shared/packaging/push-tag.sh)
+$(sed -n '/^mirror_ref_json=/,/^done$/p' shared/packaging/push-tag.sh)"
   : > "$posts"
-  REF_CODE="$code" SERVED_SHA="$served" WANT_SHA="$PUSHED_SHA" POSTS="$posts" bash -c '
+  REF_CODE="$code" SERVED_SHA="$served" WANT_SHA="$PUSHED_SHA" POSTS="$posts" \
+  GH_REPO_READ_PAT="${TOKEN_OVERRIDE-stub-read-token}" bash -c '
     set -uo pipefail
     tag=v1.2.3
     token=stub
@@ -76,6 +81,19 @@ check "404 still sends only one sync POST"             "1"   "$(wc -l < "$posts"
 out=$(run_mirror_block 503 "")
 check "5xx is unknown, not failure"                    "yes" "$(unknown "$out")"
 check "5xx does not claim failure"                     "no"  "$(gave_up "$out")"
+
+# The probe must never fall back to an unauthenticated request: github.com allows 60 an hour
+# per IP and every runner shares one, so the fallback answers 403 and the check stops deciding.
+out=$(TOKEN_OVERRIDE="" run_mirror_block 200 "$PUSHED_SHA")
+check "an absent read token aborts rather than probing unauthenticated" "no" "$(confirmed "$out")"
+
+# Where the guard sits is the point of it. Prepending the assertion to the extracted block above
+# proves it aborts, not that it aborts BEFORE the refs are published — move it below the push and
+# that check still passes while a missing token leaves the tag pushed and the job failed.
+guard_line=$(grep -n 'GH_REPO_READ_PAT:?' shared/packaging/push-tag.sh | head -1 | cut -d: -f1)
+push_line=$(grep -n 'push --atomic' shared/packaging/push-tag.sh | head -1 | cut -d: -f1)
+check "the token guard precedes the push" "yes" \
+      "$([ -n "$guard_line" ] && [ -n "$push_line" ] && [ "$guard_line" -lt "$push_line" ] && echo yes || echo no)"
 
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -41,7 +41,7 @@ jobs:
         # after it, so Renovate bumps one dependency's pin under the other's name.
         env:
           # renovate: datasource=pypi depName=ruff
-          RUFF: "0.16.5"
+          RUFF: "0.16.6"
           # renovate: datasource=pypi depName=pytest
           PYTEST: "9.1.1"
         run: python3 -m pip install --upgrade "ruff==$RUFF" "pytest==$PYTEST"

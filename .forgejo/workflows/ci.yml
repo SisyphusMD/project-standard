@@ -27,14 +27,14 @@ jobs:
         id: setup_python
         continue-on-error: true
         with:
-          python-version: "3.14"
+          python-version: "3.15"
       # Retried in-step, guarded on `!= 'success'` rather than `== 'failure'`: an unset outcome must
       # retry, or `continue-on-error` would swallow the first failure and later steps would run
       # against whatever interpreter happened to be present.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: steps.setup_python.outcome != 'success'
         with:
-          python-version: "3.14"
+          python-version: "3.15"
       - name: Install the toolchain
         # One annotation per pin, each directly above its OWN value. Stacked above a single install
         # line they pair up wrongly: the pattern takes the last annotation and the first version
@@ -84,11 +84,11 @@ jobs:
         id: setup_python
         continue-on-error: true
         with:
-          python-version: "3.14"
+          python-version: "3.15"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: steps.setup_python.outcome != 'success'
         with:
-          python-version: "3.14"
+          python-version: "3.15"
       - name: Vendor into a scratch consumer and verify the drift check agrees
         # The contract both consumers depend on, exercised rather than assumed: vendor.py must
         # produce a tree that check.py — the same script CI runs in each consumer — reports as in

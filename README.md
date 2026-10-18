@@ -69,6 +69,15 @@ parameter file, not shared content.
 PROJECT_REPO_SLUG="SisyphusMD/whiskerless"
 ```
 
+A project that needs only part of the standard lists the paths it takes, on one line, and must
+include `packaging/check-standard-sync.py`. Without the line it takes everything, as both
+consumers above do. Removing a path from the list retires it on the next vendor, and an unknown
+or malformed entry stops the vendor before anything is written.
+
+```bash
+STANDARD_FILES="packaging/check-standard-sync.py packaging/changelog-section.sh"
+```
+
 ## Adding a file to the standard
 
 1. It must be genuinely project-agnostic, or parameterised through `project.env`.

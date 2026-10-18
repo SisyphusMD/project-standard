@@ -8,7 +8,8 @@ fetch and no cross-repo package: an old tag of a consumer must still build and r
 years later, with this repository unreachable. That property is the whole reason this design is
 safe, and it is worth more than any convenience a live dependency would buy.
 
-`packaging/project.env` is the consumer's own parameter file and is never vendored or locked.
+`packaging/project.env` is the consumer's own parameter file and is never vendored or locked. A
+consumer that needs only part of the standard lists those paths there in `STANDARD_FILES`.
 """
 from __future__ import annotations
 
@@ -25,6 +26,10 @@ HERE = Path(__file__).resolve().parent.parent
 SHARED = HERE / "shared"
 LOCK_NAME = "STANDARD.lock"
 HEX64 = re.compile(r"[0-9a-f]{64}")
+PROJECT_ENV = PurePosixPath("packaging/project.env")
+ASSIGNS_SELECTION = re.compile(r"\s*(?:export\s+)?STANDARD_FILES\s*=")
+SELECTION = re.compile(r'STANDARD_FILES="([^"]*)"[ \t]*(?:#.*)?')
+CHECKER = "packaging/check-standard-sync.py"
 
 
 def digest(path: Path) -> str:
@@ -47,6 +52,42 @@ def shared_files() -> list[Path]:
         and p.suffix != ".pyc"
         and "__pycache__" not in p.parts
     )
+
+
+def selection(consumer: Path, available: list[Path]) -> list[Path]:
+    """The shared files this consumer takes: all of them, unless project.env names a subset.
+
+    The choice lives in the consumer because the re-vendor Renovate drives passes no arguments; a
+    command-line subset would be forgotten on the next standard bump and every file would return.
+
+    Everything that is not exactly one well-formed `STANDARD_FILES="..."` line is refused rather
+    than read past. Falling back to the full standard over a typo would vendor dozens of files the
+    consumer chose not to own, and skipping an unknown name would leave a script it relies on
+    missing with the lock reporting green.
+    """
+    env = consumer / PROJECT_ENV
+    lines = env.read_text().splitlines() if env.is_file() else []
+    found = [line.strip() for line in lines if ASSIGNS_SELECTION.match(line)]
+    if not found:
+        return available
+    if len(found) > 1:
+        raise SystemExit(f"{PROJECT_ENV} sets STANDARD_FILES more than once; keep one line")
+    match = SELECTION.fullmatch(found[0])
+    if match is None:
+        raise SystemExit(f'{PROJECT_ENV}: write the subset as STANDARD_FILES="a b c" on one line')
+
+    wanted = set(match.group(1).split())
+    if not wanted:
+        raise SystemExit(f"{PROJECT_ENV}: STANDARD_FILES is empty; remove the line to take everything")
+    # The drift check is the only thing that notices an edited copy, so a lock without it guards
+    # nothing.
+    if CHECKER not in wanted:
+        raise SystemExit(f"{PROJECT_ENV}: STANDARD_FILES must include {CHECKER}")
+    by_name = {str(p.relative_to(SHARED)): p for p in available}
+    unknown = sorted(wanted - by_name.keys())
+    if unknown:
+        raise SystemExit(f"{PROJECT_ENV}: the standard does not ship {', '.join(unknown)}")
+    return [by_name[name] for name in sorted(wanted)]
 
 
 def any_symlink_on_the_way(consumer: Path, rel: str) -> bool:
@@ -270,8 +311,10 @@ def main() -> int:
         print(f"not a directory: {consumer}", file=sys.stderr)
         return 2
 
-    sources = shared_files()
-    files = {str(src.relative_to(SHARED)): digest(src) for src in sources}
+    # Read before anything is touched, so a bad selection stops the run with the consumer intact.
+    # A path dropped from the selection then retires like one the standard stopped shipping.
+    sources = selection(consumer, shared_files())
+    files ={str(src.relative_to(SHARED)): digest(src) for src in sources}
 
     # Retirement runs first. A path that turned from a file into a directory upstream still has the
     # old object sitting in the way here, and the copy below would fail on it before anything got

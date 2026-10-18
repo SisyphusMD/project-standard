@@ -538,3 +538,78 @@ def test_every_shared_file_lands_where_consumers_are_configured_to_keep_it() -> 
     assert not stray, (
         f"these would be vendored and then discarded by every consumer's fileFilters: {stray}"
     )
+
+
+def select(consumer: Path, line: str) -> None:
+    env = consumer / "packaging" / "project.env"
+    env.parent.mkdir(parents=True, exist_ok=True)
+    env.write_text(f'PROJECT_REPO_SLUG="SisyphusMD/consumer"\n{line}\n')
+
+
+def vendor_unchecked(consumer: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(VENDOR), str(consumer)], capture_output=True, text=True, check=False
+    )
+
+
+SUBSET = ("packaging/changelog-section.sh", "packaging/check-standard-sync.py")
+
+
+def test_a_selected_subset_is_all_that_is_vendored_and_locked(tmp_path: Path) -> None:
+    consumer = tmp_path / "consumer"
+    select(consumer, f'STANDARD_FILES="{" ".join(SUBSET)}"  # release helpers only')
+
+    vendor(consumer)
+
+    assert sorted(locked(consumer)) == sorted(SUBSET)
+    shipped = sorted(
+        str(p.relative_to(consumer))
+        for p in consumer.rglob("*")
+        if p.is_file() and p.name not in {"STANDARD.lock", "project.env"}
+    )
+    assert shipped == sorted(SUBSET), f"vendored beyond the selection: {shipped}"
+    check = subprocess.run(
+        [sys.executable, str(consumer / "packaging" / "check-standard-sync.py"), str(consumer)],
+        capture_output=True, text=True, check=False,
+    )
+    assert check.returncode == 0, check.stderr
+
+
+def test_narrowing_the_selection_retires_what_was_dropped(tmp_path: Path) -> None:
+    """A deselected file must leave, or it lingers outside the lock where nothing checks it."""
+    consumer = tmp_path / "consumer"
+    consumer.mkdir()
+    vendor(consumer)
+    assert "packaging/push-tag.sh" in locked(consumer)
+
+    select(consumer, f'STANDARD_FILES="{" ".join(SUBSET)}"')
+    vendor(consumer)
+
+    assert not (consumer / "packaging" / "push-tag.sh").exists()
+    assert sorted(locked(consumer)) == sorted(SUBSET)
+
+
+def test_a_bad_selection_stops_before_the_consumer_is_touched(tmp_path: Path) -> None:
+    """Each of these would otherwise vendor the wrong set while the lock reports green."""
+    cases = {
+        "unknown path": 'STANDARD_FILES="packaging/check-standard-sync.py packaging/no-such.sh"',
+        "checker left out": 'STANDARD_FILES="packaging/changelog-section.sh"',
+        "empty": 'STANDARD_FILES=""',
+        "unquoted": "STANDARD_FILES=packaging/check-standard-sync.py",
+        "set twice": (
+            'STANDARD_FILES="packaging/check-standard-sync.py"\n'
+            'STANDARD_FILES="packaging/check-standard-sync.py"'
+        ),
+    }
+    for name, line in cases.items():
+        consumer = tmp_path / name.replace(" ", "-")
+        select(consumer, line)
+
+        result = vendor_unchecked(consumer)
+
+        assert result.returncode != 0, f"{name}: vendored anyway"
+        assert "STANDARD_FILES" in result.stderr or "standard does not ship" in result.stderr, (
+            f"{name}: refused without naming the cause: {result.stderr!r}"
+        )
+        leftovers = sorted(p.name for p in consumer.rglob("*") if p.is_file())
+        assert leftovers == ["project.env"], f"{name}: wrote {leftovers} before refusing"

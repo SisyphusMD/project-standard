@@ -134,7 +134,7 @@ and relied on the flat layout without saying so; both now `pip install -e .`.
 | `.deb` / `.rpm` release assets | yes | yes | Both versioned, both signed |
 | apt / dnf repository | yes | yes | One `sisyphusmd.repo` + `sisyphusmd-testing.repo` per repo, one owner-wide key |
 | Homebrew formula (stable + `-rc`) | yes | yes | Same tap, same fall-through rule |
-| Homebrew bottles | yes | yes | Same four platforms; **benefit differs** — see *Homebrew bottles* |
+| Homebrew bottles | yes | yes | Same three platforms; **benefit differs** — see *Homebrew bottles* |
 | Standalone Linux download | one-file binary | onedir bundle tarball | Different freezing constraints, same guarantee: extract and run |
 | macOS `.pkg` (signed + notarized) | yes | yes | |
 | Source tarball | PyPI sdist | byte-reproducible tarball | Both feed the formula |
@@ -468,9 +468,12 @@ never that.
 
 ## Homebrew bottles — now in both, with the benefit stated honestly
 
-Both projects build bottles on the same four platforms (`arm64_sequoia`, `sequoia`,
-`x86_64_linux`, `arm64_linux`) through the same shared `build-bottles.sh`, `bottle-block.py` and
-`render-formula.sh`, and both write the `bottle do` block in a second tap pass.
+Both projects build bottles on the same three platforms (`arm64_sequoia`, `x86_64_linux`,
+`arm64_linux`) through the same shared `build-bottles.sh`, `bottle-block.py` and
+`render-formula.sh`, and both write the `bottle do` block in a second tap pass. Intel macOS
+(`sequoia`) was dropped from both on 2026-10-26: Homebrew stopped building Intel bottles in
+2026-09, so ours would have had to compile python, openssl, llvm and rust from source on every
+release. Intel Macs install the `.pkg`, or the formula builds from source.
 
 **The benefit is not equal, and pretending otherwise would be the dishonest version of parity:**
 

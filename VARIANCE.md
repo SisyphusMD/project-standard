@@ -329,6 +329,23 @@ that a test enforced while its own rules described hand review. That test no lon
 policy it enforced is gone; both projects allow documented holds. The tension was between the record
 and the repositories, not between the two repositories.
 
+### Interpreter pins and PR rebasing — now converged
+
+Both pin every `actions/setup-python` interpreter to an exact `X.Y.Z`, pinned by
+`test_every_setup_python_pins_an_exact_interpreter` in each. Until 2026-10-26 both mixed exact pins
+with floating `3.14`/`3.15`, and neither had a reason on record. A floating minor takes each new
+patch the day actions/python-versions publishes it, which is the same reddened-main-with-no-commit
+problem the toolchain pins below solved. Whiskerless also carried its floor and newest interpreters
+as a matrix, and Renovate's github-actions manager never reads a matrix value: the newest leg sat
+at 3.14 while its release gate tested 3.15. Both projects now give the floor its own job with a
+literal pin. The Home Assistant interpreter is exact too, with Renovate held to the 3.13 series
+rather than disabled, so patches move and the minor waits for Home Assistant.
+
+Dreame set `rebaseWhen: behind-base-branch` in July on the belief that the default only rebased on
+conflict. It was already automerging then, and the default (`auto`) rebases every automerging PR
+that falls behind, so the override only added held PRs, and every push to main re-queued the whole
+PR set on the mirror's few macOS runners. Both now use the default.
+
 ### Development toolchain — now converged
 
 Both exact-pin `ruff`, `mypy`, `pytest` and `pytest-cov` at the **same versions**, each with a

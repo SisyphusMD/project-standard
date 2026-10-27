@@ -43,7 +43,7 @@ jobs:
           # renovate: datasource=pypi depName=ruff
           RUFF: "0.17.3"
           # renovate: datasource=pypi depName=pytest
-          PYTEST: "9.1.1"
+          PYTEST: "9.2.0"
         run: python3 -m pip install --upgrade "ruff==$RUFF" "pytest==$PYTEST"
       - name: Ruff
         # The rules here are the UNION of both consumers', because a vendored file has to pass in

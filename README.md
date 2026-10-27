@@ -67,7 +67,14 @@ parameter file, not shared content.
 
 ```bash
 PROJECT_REPO_SLUG="SisyphusMD/whiskerless"
+PROJECT_TAP_SLUG="SisyphusMD/homebrew-tap"
 ```
+
+`packaging/asset-roles.sh` is the other per-project file: the release's asset table, which
+`reconcile-releases.sh`, `prune-rcs.sh` and `wait-for-release.sh` read. It declares `_ASSET_ROLES`
+and `_IGNORED_ASSETS`, and may declare `_OPTIONAL_ASSET_ROLES` (roles an older release predates,
+which the wait does not demand of it) and `_OPTIONAL_ASSET_PREDECESSORS` (what such a release
+carries in their place, which the wait then demands instead).
 
 A project that needs only part of the standard lists the paths it takes, on one line, and must
 include `packaging/check-standard-sync.py`. Without the line it takes everything, as both

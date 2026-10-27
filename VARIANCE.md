@@ -234,6 +234,7 @@ reader "fixing" one of them.
 | **Name the artifact after what the packaging system reports** | `~rc.` in `.deb`/`.rpm` filenames, matching what `dpkg -I` says | the same, plus `-rc.` for the `.pkg`, because `pkgbuild --version` stores the tag form verbatim |
 | **Never let a consumer see a version it cannot yet install** | `releases` waits on `pypi`: HACS offers the update the instant the GitHub release exists, and the manifest pins `whiskerless==<version>` | `releases` runs beside `pypi` off `guard`: nothing watches its release feed and then resolves the version somewhere else |
 | **Do not rebuild what the package manager already ships** | `cryptography` is `depends_on`, not a resource: its sdist is a Rust extension, and Homebrew bottles it for every targeted platform | both resources stay resources: neither `sunxi-tools` nor `pyusb` exists as a Homebrew formula, so there is nothing to defer to |
+| **Wait for every role a release carries, excusing only what an older release predates** (`asset-roles.sh`, read by the shared `wait-for-release.sh`) | the per-architecture checksums are optional roles whose predecessor is the single pre-split `SHA256SUMS` that surviving v0.2.0-rc.* releases carry, so a release must carry one or the other | the same optional roles with no predecessor: releases before them carried no checksum file at all |
 | **Hold the one seam higher than the average** | `safety.py` at 100% — every send funnels through it | `run.py` at 100% — every external command funnels through it |
 
 Both also pin their **development** toolchain exactly, at the same versions: a lint release must
@@ -278,14 +279,17 @@ collision, and it is what the rest of this table should eventually look like.
 
 ## Discovered 2026-08-20, during the convergence pass
 
-### Contribution routing
+### Contribution routing — now converged
 
 | | Whiskerless | Dreame Valetudo |
 |---|---|---|
-| Issues and PRs | **GitHub** — it is the mirror HACS installs from, and where users already are | **Forgejo** — GitHub is a push-mirror except `release-macos.yml` |
-| Consequence | needs `.github/workflows/ci-pr.yml` so fork PRs get CI on GitHub-hosted runners | needs no GitHub PR CI at all; its fork gate lives on the Forgejo side |
+| Issues and PRs | **GitHub** — it is the mirror HACS installs from, and where users already are | **GitHub** — outside contributors have no Forgejo account (CONTRIBUTING.md) |
+| Fork-PR CI | `.github/workflows/ci-pr.yml` on GitHub-hosted runners | `.github/workflows/ci-pr.yml` on GitHub-hosted runners |
 
-Not a gap. Whisk's `ci-pr.yml` having no Dreame counterpart is this decision, not an omission.
+Both projects' Forgejo CI skips a fork PR behind the same trust gate, because that runner holds
+release credentials, so both need `ci-pr.yml` to give an outsider's PR any checks at all. This entry
+once recorded Dreame as Forgejo-routed with no GitHub PR CI; Dreame has carried `ci-pr.yml` since
+2026-08-21, and the earlier line read as a variance that no longer existed.
 
 ### Coverage floors — now converged
 
@@ -358,8 +362,13 @@ variance, recorded above under *Layout and dependencies*.
 
 Both lint and shellcheck **discover** their inputs (`git ls-files`) rather than enumerating them.
 Both previously used hand-maintained lists, and in both a newly added file went unchecked with no
-symptom. Dreame's one deliberate exclusion, `docs/research/tools/`, is pinned by a test so widening
-it is a visible edit.
+symptom. Every ruff invocation — CI, fork-PR CI, the release and prerelease gates, and native macOS
+CI where it lints — is the same line in both projects: `ruff check $(git ls-files '*.py' | tr '\n' ' ')`.
+The release gates were the last to converge; they linted a fixed directory list, so a release could
+pass on less than CI held `main` to. An exclusion lives in `pyproject.toml` (`extend-exclude`, made
+binding on named files by `force-exclude = true` in both). Dreame's one, `docs/research/tools/`, is
+reproduction scratch held to `compileall` instead; whiskerless has none. The test that pins the
+lint line also refuses any exclusion that covers shipped code.
 
 ---
 

@@ -314,7 +314,7 @@ could ship. Whiskerless gated all three; Dreame gated one. Both now gate all thr
 | | Whiskerless | Dreame Valetudo |
 |---|---|---|
 | Automerges on green | `patch`, `minor`, `digest`, every dependency | the same |
-| Holds | `bleak`, the manylinux images, and Debian 13 until the distro matrix is ported | `pyusb`, and the manylinux images |
+| Holds | `bleak`, and the manylinux images | `pyusb`, and the manylinux images |
 | Every hold states what CI cannot reach | yes, pinned by test | yes, pinned by test |
 
 **One rule, two lists**, so this belongs with the entries above rather than among the divergences: a
@@ -330,10 +330,8 @@ the blast radius is every Linux package. CI does build with them (x86_64 on ever
 release) and the glibc floor check fails a bad symbol, but no check encodes judgement about the
 toolchain change itself. Every other build pin (nfpm, PyInstaller, the bundled CPython)
 automerges in both, because the PR build job freezes and packages with it. Whiskerless held those
-too until 2026-10-28, on the stale claim that nothing in PR CI built with them. It still holds
-`debian-13-current`, which Dreame automerges: Dreame's PR CI runs that image in its distro package
-matrix, and Whiskerless has no such matrix yet, so its only uses are the release parity check and
-the post-publish install matrix.
+too until 2026-10-28, on the stale claim that nothing in PR CI built with them, and held
+`debian-13-current` until its pre-merge distro matrix existed to run that image.
 
 This was previously recorded as an open tension, on the grounds that dreame ran a no-holds policy
 that a test enforced while its own rules described hand review. That test no longer exists and the
@@ -769,9 +767,15 @@ The same sweep found the images themselves carrying two Renovate identities. Dre
 which meant one image answered to two depNames under two separate clamps that were free to drift
 apart. One identity per image now, and the duplicate rules are gone.
 
-What is still uneven is the pre-merge distro matrix, which dreame has and whiskerless does not; that
-is a difference in where breadth is bought, not a gap in what ships. Both projects install-test
-every channel they publish, on the same images, from the published artifact.
+The pre-merge distro matrix closed on 2026-10-28. Whiskerless now runs
+`packaging/test-linux-packages.sh` from its `ci.yml` build job exactly as dreame does: the same nine
+floor and current hosts under the same Renovate identities, a real rc.1 → rc.2 upgrade of both
+packages, uninstall proving user data survives, and the release-time `package-smoke` Dockerfiles
+calling the same script with `--inside-single`. Two differences are layout, not coverage. Whiskerless
+ships one onefile binary, so it has no pre-onedir transition case and its parity check is a byte
+`cmp` of one file rather than `check-package-parity.py` over a tree. And its "works" check is its
+own `installed-smoke.sh`, the definition every other whiskerless channel already calls, where
+dreame runs its bench host-smoke.
 
 This section is meant to stay empty. A gap recorded here is a promise to close it, not a place to
 retire one.

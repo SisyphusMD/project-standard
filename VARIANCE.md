@@ -483,6 +483,10 @@ Both projects build bottles on the same three platforms (`arm64_sequoia`, `x86_6
 (`sequoia`) was dropped from both on 2026-10-26: Homebrew stopped building Intel bottles in
 2026-09, so ours would have had to compile python, openssl, llvm and rust from source on every
 release. Intel Macs install the `.pkg`, or the formula builds from source.
+The pre-merge formula smoke (`formula-macos.yml`) dropped its Intel lanes from both on
+2026-10-28 for the same reason: a Whiskerless Intel lane compiling rust and llvm ran past
+GitHub's six-hour job limit. Both now build the formula on the Apple Silicon floor and current
+lanes only, like `install-matrix.yml`'s brew leg; `ci-macos.yml` keeps all four lanes.
 
 **The benefit is not equal, and pretending otherwise would be the dishonest version of parity:**
 

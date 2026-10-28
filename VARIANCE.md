@@ -314,7 +314,7 @@ could ship. Whiskerless gated all three; Dreame gated one. Both now gate all thr
 | | Whiskerless | Dreame Valetudo |
 |---|---|---|
 | Automerges on green | `patch`, `minor`, `digest`, every dependency | the same |
-| Holds | the release-only build pins, and `bleak` | `pyusb`, and the manylinux images |
+| Holds | `bleak`, the manylinux images, and Debian 13 until the distro matrix is ported | `pyusb`, and the manylinux images |
 | Every hold states what CI cannot reach | yes, pinned by test | yes, pinned by test |
 
 **One rule, two lists**, so this belongs with the entries above rather than among the divergences: a
@@ -325,8 +325,15 @@ cable. Neither project can buy that coverage, so both hold, and both must say so
 where the reviewer sees it — `test_every_renovate_hold_says_what_CI_cannot_reach` in whiskerless,
 `test_every_hold_says_what_CI_cannot_reach` in dreame-valetudo.
 
-The manylinux images are held in both for a different reason that is the same shape: they define the
-shipped glibc ABI, nothing in PR CI builds with them, and the blast radius is every Linux package.
+The manylinux images are held in both for a different reason. They define the shipped glibc ABI and
+the blast radius is every Linux package. CI does build with them (x86_64 on every PR, both arches at
+release) and the glibc floor check fails a bad symbol, but no check encodes judgement about the
+toolchain change itself. Every other build pin (nfpm, PyInstaller, the bundled CPython)
+automerges in both, because the PR build job freezes and packages with it. Whiskerless held those
+too until 2026-10-28, on the stale claim that nothing in PR CI built with them. It still holds
+`debian-13-current`, which Dreame automerges: Dreame's PR CI runs that image in its distro package
+matrix, and Whiskerless has no such matrix yet, so its only uses are the release parity check and
+the post-publish install matrix.
 
 This was previously recorded as an open tension, on the grounds that dreame ran a no-holds policy
 that a test enforced while its own rules described hand review. That test no longer exists and the

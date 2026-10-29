@@ -777,5 +777,13 @@ ships one onefile binary, so it has no pre-onedir transition case and its parity
 own `installed-smoke.sh`, the definition every other whiskerless channel already calls, where
 dreame runs its bench host-smoke.
 
+Building that matrix turned up two more drifts, closed the same day. The `.pkg` test: dreame ran
+`packaging/test-macos-package.sh` (signature, staple, receipt version, codesign, uninstall, store
+survives) while whiskerless installed and smoked inline; whiskerless asked Gatekeeper for its
+notarization verdict and dreame did not. Both now run one script shape with every check, from both
+release jobs. And `uninstall`, listed above as converged, had drifted in behaviour: dreame exited 0
+when a removal failed and dropped the manual steps, both failed as root on a host without `sudo`,
+and every frozen whiskerless build reported itself as a pip install and then failed to remove it.
+
 This section is meant to stay empty. A gap recorded here is a promise to close it, not a place to
 retire one.

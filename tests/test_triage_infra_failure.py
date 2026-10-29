@@ -9,10 +9,12 @@ that matter most here are the ones where it must REFUSE to retry.
 
 from __future__ import annotations
 
+import http.server
 import importlib.util
 import json
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -218,3 +220,92 @@ def test_the_cli_reads_a_logs_directory(tmp_path) -> None:
                          capture_output=True, text=True, check=True).stdout
     assert out.startswith("infra=true\n")
     assert "retryable" in out
+
+
+# --- a runner whose address the edge refuses ----------------------------------------------------
+
+_PREFLIGHT = {"name": "Check this runner can reach Forgejo", "conclusion": "failure",
+              "started_at": "2026-10-29T05:47:00Z", "completed_at": "2026-10-29T05:47:05Z"}
+_BOTTLE = {"name": "Build the bottles (Linux — the pinned linuxbrew image)", "conclusion": "failure",
+           "started_at": "2026-10-29T05:48:27Z", "completed_at": "2026-10-29T05:52:08Z"}
+_BAN_LINE = ("2026-10-29T05:47:02.0000000Z forgejo-preflight: edge refused this runner (anonymous "
+             "GET https://forgejo.bryantserver.com/api/v1/version returned HTTP 403)")
+#: Trimmed from the observed job (dreame-valetudo v0.3.0-rc.48, x86_64_linux bottle).
+_TAP_403 = ("2026-10-29T05:52:06.1720336Z fatal: unable to access "
+            "'https://forgejo.bryantserver.com/SisyphusMD/homebrew-tap.git/': The requested URL "
+            "returned error: 403")
+
+
+def _ban_job(job_id: int, *steps: dict) -> dict:
+    return {"id": job_id, "name": "Bottle x86_64_linux", "conclusion": "failure", "steps": list(steps)}
+
+
+def test_an_edge_ban_caught_by_the_preflight_is_retryable() -> None:
+    infra, report = _load().triage([_ban_job(1, _SETUP, _PREFLIGHT)], {1: _BAN_LINE})
+    assert infra is True
+    assert any("edge refused" in line and "retryable" in line for line in report)
+
+
+@pytest.mark.parametrize("end", ["2026-10-29T05:47:00Z", "2026-10-29T05:47:01Z"])
+def test_a_refusal_faster_than_a_second_is_still_seen(end: str) -> None:
+    """The real shape: the probe is refused in milliseconds, so its marker shares a second with the
+    step's start or end. Both boundaries must count for this rule or it can never fire."""
+    step = {**_PREFLIGHT, "started_at": "2026-10-29T05:47:00Z", "completed_at": end}
+    line = _BAN_LINE.replace("05:47:02", end[11:19])
+    infra, _ = _load().triage([_ban_job(6, _SETUP, step)], {6: line})
+    assert infra is True
+
+
+def test_a_preflight_that_never_started_owns_no_evidence() -> None:
+    step = {"name": _PREFLIGHT["name"], "conclusion": "failure"}
+    assert _load().edge_ban(_BAN_LINE, step) is False
+
+
+def test_a_403_in_any_other_step_stays_ours() -> None:
+    """The observed failure itself, before the preflight existed. A 403 from an ordinary step may be
+    a revoked token, so the status alone must never earn a retry."""
+    infra, _ = _load().triage([_ban_job(2, _SETUP, _BOTTLE)], {2: _TAP_403})
+    assert infra is False
+
+
+def test_the_marker_in_another_step_does_not_launder_it() -> None:
+    """Only the preflight step's own name may carry the evidence: a script that echoes the marker
+    from a build step is not the anonymous probe."""
+    log = "2026-10-29T05:50:00.0000000Z forgejo-preflight: edge refused this runner (copied)"
+    infra, _ = _load().triage([_ban_job(3, _SETUP, _BOTTLE)], {3: log})
+    assert infra is False
+
+
+@pytest.mark.parametrize("code", ["000", "500", "502", "404"])
+def test_a_preflight_that_failed_any_other_way_stays_ours(code: str) -> None:
+    """Forgejo down, or a URL we broke, is not a ban: re-running a fresh runner cannot fix it."""
+    log = (f"2026-10-29T05:47:02.0000000Z forgejo-preflight: "
+           f"https://forgejo.bryantserver.com/api/v1/version returned HTTP {code}")
+    infra, _ = _load().triage([_ban_job(4, _SETUP, _PREFLIGHT)], {4: log})
+    assert infra is False
+
+
+def test_the_preflight_script_prints_exactly_what_triage_matches(tmp_path) -> None:
+    """The script and the rule spell the marker independently, so run the real script against a
+    server that answers 403 and feed its output through the real rule."""
+    class Refuse(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(403)
+            self.end_headers()
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Refuse)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    script = _SCRIPT.parent / "forgejo-preflight.sh"
+    try:
+        result = subprocess.run(["sh", str(script), f"http://127.0.0.1:{server.server_port}"],
+                                capture_output=True, text=True, timeout=60, check=False)
+    finally:
+        server.shutdown()
+    assert result.returncode == 1
+    line = f"2026-10-29T05:47:00.0110000Z {result.stderr.strip()}"
+    fast = {**_PREFLIGHT, "started_at": "2026-10-29T05:47:00Z", "completed_at": "2026-10-29T05:47:00Z"}
+    infra, _ = _load().triage([_ban_job(5, _SETUP, fast)], {5: line})
+    assert infra is True

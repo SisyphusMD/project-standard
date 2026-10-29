@@ -309,3 +309,51 @@ def test_the_preflight_script_prints_exactly_what_triage_matches(tmp_path) -> No
     fast = {**_PREFLIGHT, "started_at": "2026-10-29T05:47:00Z", "completed_at": "2026-10-29T05:47:00Z"}
     infra, _ = _load().triage([_ban_job(5, _SETUP, fast)], {5: line})
     assert infra is True
+
+
+# --- a summary job that only restates its legs --------------------------------------------------
+
+_VERDICT = {"name": "Verdict", "conclusion": "failure",
+            "started_at": "2026-10-29T06:10:00Z", "completed_at": "2026-10-29T06:10:01Z"}
+
+
+def _summary(job_id: int) -> dict:
+    return {"id": job_id, "name": "Every macOS and Linux arm64 channel installed and ran",
+            "conclusion": "failure", "steps": [_SETUP, _VERDICT]}
+
+
+def test_a_summary_red_only_because_its_leg_was_banned_does_not_veto_the_retry() -> None:
+    """The install matrix's summary runs `always()` and fails whenever a leg did. Counted as a
+    failure of ours, it would veto the retry of the very ban it is reporting."""
+    infra, report = _load().triage([_ban_job(10, _SETUP, _PREFLIGHT), _summary(11)], {10: _BAN_LINE})
+    assert infra is True
+    assert any("only restates" in line for line in report)
+
+
+def test_a_summary_does_not_excuse_a_real_leg_failure() -> None:
+    infra, _ = _load().triage(
+        [{"id": 12, "name": "Install (macOS)", "conclusion": "failure", "steps": [_SETUP, _PYTEST]},
+         _summary(13)], {})
+    assert infra is False
+
+
+def test_a_summary_alone_is_never_a_reason_to_retry() -> None:
+    """Its legs were cancelled or skipped rather than failed, so nothing the runner did is in
+    evidence; re-running would only undo a human's cancel."""
+    infra, _ = _load().triage([_summary(14)], {})
+    assert infra is False
+
+
+@pytest.mark.parametrize("conclusion", ["timed_out", "cancelled"])
+def test_a_hung_or_cancelled_leg_vetoes_even_beside_a_ban(conclusion: str) -> None:
+    """A leg that hung is not in the failed set to be judged, and once the summary reporting it is
+    exempted as derivative, nothing else would hold the run red: it would borrow the other leg's
+    ban and come back as a retry of a genuine hang."""
+    infra, report = _load().triage(
+        [_ban_job(15, _SETUP, _PREFLIGHT),
+         {"id": 16, "name": "Install (Linux arm64)", "conclusion": conclusion, "steps": [_SETUP]},
+         _summary(17)],
+        {15: _BAN_LINE},
+    )
+    assert infra is False
+    assert any(conclusion in line for line in report)

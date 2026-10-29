@@ -785,5 +785,11 @@ release jobs. And `uninstall`, listed above as converged, had drifted in behavio
 when a removal failed and dropped the manual steps, both failed as root on a host without `sudo`,
 and every frozen whiskerless build reported itself as a pip install and then failed to remove it.
 
+The man page was the last of the packaging gaps. Whiskerless had shipped `whiskerless.1`, with its
+licence and README under `/usr/share/doc`, since its packages went into a repository; dreame's
+`.deb` and `.rpm` carried none of the three. Both now ship all of them, generate the gzipped page at
+build time, prove in the distro matrix that the package owns it, and pin it against the commands
+the CLI dispatches.
+
 This section is meant to stay empty. A gap recorded here is a promise to close it, not a place to
 retire one.

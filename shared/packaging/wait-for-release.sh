@@ -219,8 +219,8 @@ unset _role _r _known
 # Roles a project no longer builds, which reconcile must still heal on the old releases that carry
 # them but which no new release will ever carry: the Intel .pkg, once Intel Macs were dropped. The
 # wait never demands one. Optional does not fit, because an optional role is late until it arrives,
-# and the first release cut after dropping Intel waited out its whole deadline for a .pkg nothing
-# would build (whiskerless v0.2.0-rc.70, dreame-valetudo v0.3.0-rc.48).
+# and the first release cut after dropping Intel waited out its whole deadline, in both projects,
+# for a .pkg nothing would build.
 retired_asset_role() {  # retired_asset_role <role>
   local role
   for role in ${_RETIRED_ASSET_ROLES[@]+"${_RETIRED_ASSET_ROLES[@]}"}; do

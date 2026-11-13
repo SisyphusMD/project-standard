@@ -357,3 +357,87 @@ def test_a_hung_or_cancelled_leg_vetoes_even_beside_a_ban(conclusion: str) -> No
     )
     assert infra is False
     assert any(conclusion in line for line in report)
+
+
+# A job GitHub cancelled because no runner ever took it, as the jobs API and the check-run
+# annotations API report it (observed, whiskerless run 43494832636).
+_NOT_ACQUIRED = "The job was not acquired by Runner of type hosted even after multiple attempts"
+
+
+def _unqueued(job_id: int = 20, **overrides: object) -> dict:
+    return {"id": job_id, "name": "Homebrew formula (arm64, floor)", "conclusion": "cancelled",
+            "steps": [], "runner_name": "", **overrides}
+
+
+def test_a_job_no_runner_ever_took_is_retryable() -> None:
+    infra, report = _load().triage([_unqueued()], {}, {20: [_NOT_ACQUIRED]})
+    assert infra is True
+    assert any("no runner" in line for line in report)
+
+
+def test_a_cancel_without_the_annotation_stays_a_veto() -> None:
+    """A person cancelling a queued job leaves the same empty shape and no such annotation."""
+    infra, _ = _load().triage([_unqueued()], {}, {20: ["Canceling since a higher priority waiting request exists"]})
+    assert infra is False
+    infra, _ = _load().triage([_unqueued()], {}, {})
+    assert infra is False
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [{"steps": [{"name": "Set up job", "conclusion": "success"}]}, {"runner_name": "GitHub Actions 7"}],
+)
+def test_a_job_that_started_is_not_an_unqueued_one(overrides: dict) -> None:
+    """Once a runner took it, a cancel is about what ran, and the annotation proves nothing."""
+    infra, _ = _load().triage([_unqueued(**overrides)], {}, {20: [_NOT_ACQUIRED]})
+    assert infra is False
+
+
+def test_a_real_failure_beside_an_unqueued_job_still_vetoes() -> None:
+    infra, _ = _load().triage(
+        [_unqueued(), {"id": 21, **_job("Test", "failure", Set_up_job="success", Pytest="failure")}],
+        {}, {20: [_NOT_ACQUIRED]},
+    )
+    assert infra is False
+
+
+def test_only_a_capacity_cancel_is_retried_past_the_first_attempt() -> None:
+    triage = _load().triage
+    assert triage([_unqueued()], {}, {20: [_NOT_ACQUIRED]}, attempt=2)[0] is True
+    runner_died = [{"id": 22, **_job("Test", "failure", Set_up_job="failure")}]
+    assert triage(runner_died, {}, {}, attempt=1)[0] is True
+    assert triage(runner_died, {}, {}, attempt=2)[0] is False
+
+
+def test_a_pool_that_stays_empty_is_eventually_left_red() -> None:
+    module = _load()
+    last = module.MAX_CAPACITY_ATTEMPTS
+    assert module.triage([_unqueued()], {}, {20: [_NOT_ACQUIRED]}, attempt=last - 1)[0] is True
+    infra, report = module.triage([_unqueued()], {}, {20: [_NOT_ACQUIRED]}, attempt=last)
+    assert infra is False
+    assert any("leaving it red" in line for line in report)
+
+
+def test_the_cli_reads_annotations_and_the_attempt(tmp_path) -> None:
+    (tmp_path / "jobs.json").write_text(json.dumps({"jobs": [_unqueued()]}))
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "annotations").mkdir()
+    (tmp_path / "annotations" / "20.json").write_text(json.dumps([{"message": _NOT_ACQUIRED}]))
+    (tmp_path / "annotations" / "junk.json").write_text("not json")
+
+    def run(attempt: str) -> str:
+        return subprocess.run(
+            [sys.executable, str(_SCRIPT), str(tmp_path / "jobs.json"), str(tmp_path / "logs"),
+             str(tmp_path / "annotations")],
+            capture_output=True, text=True, check=True, env={"ATTEMPT": attempt},
+        ).stdout
+
+    assert "infra=true" in run("1")
+    assert "infra=false" in run(str(_load().MAX_CAPACITY_ATTEMPTS))
+
+
+def test_a_summary_red_only_because_its_leg_went_unqueued_does_not_stop_later_attempts() -> None:
+    """The install matrix's `Verdict` fails whenever a leg does, including one no runner took, and
+    it restates that leg rather than adding a cause of its own."""
+    infra, _ = _load().triage([_unqueued(), _summary(23)], {}, {20: [_NOT_ACQUIRED]}, attempt=2)
+    assert infra is True
